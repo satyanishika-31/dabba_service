@@ -1,0 +1,27 @@
+### Create menu (admin)
+POST http://localhost:4000/menu
+Content-Type: application/json
+Cookie: token=PASTE_TOKEN
+
+{
+  "day": "Monday",
+  "items": [],
+  "notes": "Weekly menu sample"
+}
+
+### Get full weekly menu
+GET http://localhost:4000/menu
+
+### Get menu by day
+GET http://localhost:4000/menu/Monday
+
+### Update menu
+PUT http://localhost:4000/menu/PASTE_MENU_ID
+Content-Type: application/json
+
+{
+  "notes": "Updated notes"
+}
+
+### Delete menu
+DELETE http://localhost:4000/menu/PASTE_MENU_ID

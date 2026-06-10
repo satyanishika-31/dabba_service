@@ -1,0 +1,15 @@
+### Skip a meal (user)
+POST http://localhost:4000/skip-meal
+Content-Type: application/json
+Cookie: token=PASTE_TOKEN
+
+{
+  "date": "2026-06-04",
+  "reason": "Out of town"
+}
+
+### Get skipped meals
+GET http://localhost:4000/skip-meal
+
+### Undo skip
+DELETE http://localhost:4000/skip-meal/PASTE_SKIP_ID

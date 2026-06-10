@@ -1,0 +1,7 @@
+### Kitchen: today's meal count
+GET http://localhost:4000/kitchen/today-count
+Cookie: token=PASTE_TOKEN
+
+### Kitchen: weekly report
+GET http://localhost:4000/kitchen/weekly-report
+Cookie: token=PASTE_TOKEN

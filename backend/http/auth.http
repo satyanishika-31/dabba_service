@@ -1,0 +1,47 @@
+### Register user
+POST http://localhost:4000/auth/users
+Content-Type: application/json
+
+{
+  "name": "Test User",
+  "email": "testuser@example.com",
+  "mobile": "9998887776",
+  "password": "secret123",
+  "role": "Admin"
+}
+
+### Login
+POST http://localhost:4000/auth/login
+Content-Type: application/json
+
+{
+  "email": "testuser@example.com",
+  "password": "secret123",
+  "role": "admin"
+}
+
+### Check auth
+GET http://localhost:4000/auth/check-auth
+
+### Get profile
+GET http://localhost:4000/auth/profile
+
+### Update profile
+PUT http://localhost:4000/auth/profile
+Content-Type: application/json
+
+{
+  "name": "Updated Name"
+}
+
+### Change password
+PUT http://localhost:4000/auth/password
+Content-Type: application/json
+
+{
+  "currentPassword": "secret123",
+  "newPassword": "newSecret123"
+}
+
+### Logout
+GET http://localhost:4000/auth/logout

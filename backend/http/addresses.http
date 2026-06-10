@@ -1,0 +1,31 @@
+### Create address
+POST http://localhost:4000/auth/addresses
+Content-Type: application/json
+Cookie: token=PASTE_TOKEN
+
+{
+  "label": "Home",
+  "line1": "123 Main St",
+  "city": "City",
+  "state": "State",
+  "zip": "12345",
+  "isDefault": true
+}
+
+### Get addresses
+GET http://localhost:4000/auth/addresses
+Cookie: token=PASTE_TOKEN
+
+### Update address
+PUT http://localhost:4000/auth/addresses/PASTE_ADDRESS_ID
+Content-Type: application/json
+Cookie: token=PASTE_TOKEN
+
+{
+  "label": "Work",
+  "isDefault": false
+}
+
+### Delete address
+DELETE http://localhost:4000/auth/addresses/PASTE_ADDRESS_ID
+Cookie: token=PASTE_TOKEN

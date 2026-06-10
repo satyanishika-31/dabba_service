@@ -1,0 +1,12 @@
+### Admin: list subscriptions
+GET http://localhost:4000/admin-api/subscriptions
+Cookie: token=PASTE_TOKEN
+
+### Admin: block user
+PUT http://localhost:4000/admin-api/block-user/PASTE_USER_ID
+Content-Type: application/json
+Cookie: token=PASTE_TOKEN
+
+{
+  "block": true
+}
