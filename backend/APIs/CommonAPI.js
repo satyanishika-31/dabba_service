@@ -21,6 +21,18 @@ function normalizeRole(role) {
   return allowedRoles.includes(roleVal) ? roleVal : 'USER'
 }
 
+function getAuthCookieOptions() {
+  const isDeployed =
+    process.env.NODE_ENV === "production" ||
+    Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL)
+
+  return {
+    httpOnly: true,
+    secure: isDeployed,
+    sameSite: isDeployed ? "none" : "lax"
+  }
+}
+
 function setAuthCookie(res, user) {
   const token = sign(
     { id: user._id, email: user.email, role: user.role },
@@ -28,11 +40,7 @@ function setAuthCookie(res, user) {
     { expiresIn: "10h" }
   )
 
-  res.cookie("token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax"
-  })
+  res.cookie("token", token, getAuthCookieOptions())
 }
 
 // =======================
@@ -126,11 +134,7 @@ commonApp.post("/login", async (req, res) => {
 // ✅ LOGOUT
 // =======================
 commonApp.get("/logout", (req, res) => {
-  res.clearCookie("token", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax"
-  })
+  res.clearCookie("token", getAuthCookieOptions())
 
   res.status(200).json({ message: "Logout successful" })
 })
@@ -247,7 +251,7 @@ commonApp.delete("/users",
     try {
       await UserModel.findByIdAndDelete(req.user.id)
 
-      res.clearCookie("token")
+      res.clearCookie("token", getAuthCookieOptions())
 
       res.status(200).json({
         message: "Account deleted"

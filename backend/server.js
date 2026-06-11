@@ -19,9 +19,15 @@ config();
 const app = exp();
 
 // Allowed frontend origins
+const configuredOrigins = (process.env.FRONTEND_URLS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://dabba-service-lilac.vercel.app'
+  'https://dabba-service-lilac.vercel.app',
+  ...configuredOrigins
 ];
 
 // Middleware
