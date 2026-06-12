@@ -88,6 +88,7 @@ function AuthPage({ mode }) {
                 <select name="role" value={form.role} onChange={updateField} className="mt-2 w-full rounded-md border border-[#896A67] px-4 py-3 outline-none focus:border-[#6B4D57]">
                   <option value="USER">Customer</option>
                   <option value="FOOD_PROVIDER">Food provider</option>
+                  <option value="ADMIN">Admin</option>
                   <option value="DELIVERY">Delivery</option>
                 </select>
               </label>
