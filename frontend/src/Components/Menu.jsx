@@ -35,7 +35,7 @@ function Menu() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const canManageMeals = user?.role === "FOOD_PROVIDER";
+  const canManageMeals = user?.role === "FOOD_PROVIDER" || user?.role === "ADMIN";
   const canDeleteAnyMeal = user?.role === "ADMIN";
   const canOrder = user?.role === "USER";
 

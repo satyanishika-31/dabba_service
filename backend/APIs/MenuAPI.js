@@ -14,8 +14,8 @@ function normalizeDay(day) {
   return allowedDays.find(candidate => candidate.toLowerCase() === normalized)
 }
 
-// Create menu meal. Meals must belong to one of the provider's kitchens.
-menuApp.post('/', verifyToken('FOOD_PROVIDER'), upload.single('image'), async (req, res) => {
+// Create menu meal. Meals must belong to the provider, while admins can publish for any kitchen.
+menuApp.post('/', verifyToken('FOOD_PROVIDER', 'ADMIN'), upload.single('image'), async (req, res) => {
   try {
     const { day, notes, name, mealTime, description, price, kitchenId, imageUrl } = req.body
     const menuDay = normalizeDay(day)
@@ -28,7 +28,7 @@ menuApp.post('/', verifyToken('FOOD_PROVIDER'), upload.single('image'), async (r
 
     const kitchen = await KitchenModel.findById(kitchenId)
     if (!kitchen) return res.status(404).json({ message: 'Kitchen not found' })
-    if (kitchen.ownerId.toString() !== req.user.id)
+    if (req.user.role !== 'ADMIN' && kitchen.ownerId.toString() !== req.user.id)
       return res.status(403).json({ message: 'You can add meals only for your own kitchen' })
 
     const finalImageUrl = req.file
