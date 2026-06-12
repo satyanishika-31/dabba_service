@@ -15,10 +15,18 @@ const { sign } = jwt
 export const commonApp = exp.Router()
 
 const allowedRoles = ["USER", "FOOD_PROVIDER", "ADMIN", "DELIVERY"]
+const publicRoles = ["USER", "FOOD_PROVIDER", "DELIVERY"]
+const adminEmail = "admin@gmail.com"
+const adminPassword = "1234567890"
 
 function normalizeRole(role) {
   const roleVal = (role || 'USER').toString().trim().toUpperCase()
   return allowedRoles.includes(roleVal) ? roleVal : 'USER'
+}
+
+function normalizePublicRole(role) {
+  const roleVal = normalizeRole(role)
+  return publicRoles.includes(roleVal) ? roleVal : 'USER'
 }
 
 function getAuthCookieOptions() {
@@ -43,6 +51,23 @@ function setAuthCookie(res, user) {
   res.cookie("token", token, getAuthCookieOptions())
 }
 
+async function getDefaultAdminUser() {
+  const adminData = {
+    name: "Admin",
+    mobile: "9999999999",
+    email: adminEmail,
+    password: await hash(adminPassword, 10),
+    role: "ADMIN",
+    isBlocked: false
+  }
+
+  return UserModel.findOneAndUpdate(
+    { email: adminEmail, role: "ADMIN" },
+    { $set: adminData },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  )
+}
+
 // =======================
 // ✅ REGISTER
 // =======================
@@ -52,7 +77,7 @@ commonApp.post("/users", upload.single("profileImage"), async (req, res) => {
     const newUser = req.body
 
     // normalize and default role to USER when missing/unknown
-    newUser.role = normalizeRole(newUser.role)
+    newUser.role = normalizePublicRole(newUser.role)
 
     // upload image
     if (req.file) {
@@ -92,7 +117,25 @@ commonApp.post("/users", upload.single("profileImage"), async (req, res) => {
 commonApp.post("/login", async (req, res) => {
   try {
     const { email, password, role } = req.body
-    const query = { email }
+    const normalizedEmail = (email || "").toString().trim().toLowerCase()
+
+    if (normalizedEmail === adminEmail) {
+      if (password !== adminPassword)
+        return res.status(400).json({ message: "Invalid password" })
+
+      const adminUser = await getDefaultAdminUser()
+      setAuthCookie(res, adminUser)
+
+      const adminObj = adminUser.toObject()
+      delete adminObj.password
+
+      return res.status(200).json({
+        message: "Login successful",
+        payload: adminObj
+      })
+    }
+
+    const query = { email: normalizedEmail }
 
     if (role) query.role = normalizeRole(role)
 
