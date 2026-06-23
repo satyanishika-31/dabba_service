@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, IndianRupee, Plus, ShoppingBag, Store, Trash2, Upload, UtensilsCrossed } from "lucide-react";
+import { CalendarDays, CheckCircle2, IndianRupee, Plus, ShoppingBag, Store, Trash2, Upload, UtensilsCrossed, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAuth } from "../context/useAuth";
 
@@ -33,6 +33,7 @@ function Menu() {
   const [orderForm, setOrderForm] = useState({ deliveryAddress: "", quantity: 1 });
   const [skipForm, setSkipForm] = useState({ date: new Date().toISOString().slice(0, 10), reason: "" });
   const [message, setMessage] = useState("");
+  const [orderConfirmation, setOrderConfirmation] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const canManageMeals = user?.role === "FOOD_PROVIDER" || user?.role === "ADMIN";
@@ -134,7 +135,12 @@ function Menu() {
 
   const placeOrder = async (menuId, itemId) => {
     setMessage("");
+    setOrderConfirmation(null);
     try {
+      const orderedItem = menus
+        .flatMap((menu) => menu.items || [])
+        .find((item) => item._id === itemId);
+
       await api.placeOrder({
         menuId,
         itemId,
@@ -142,7 +148,14 @@ function Menu() {
         deliveryAddress: orderForm.deliveryAddress
       });
       await loadData();
-      setMessage("Order placed. Delivery can now track it.");
+      const successMessage = "Order placed. Delivery can now track it.";
+      setMessage(successMessage);
+      setOrderConfirmation({
+        title: "Order confirmed",
+        message: successMessage,
+        mealName: orderedItem?.name || "Your meal",
+        quantity: Number(orderForm.quantity)
+      });
     } catch (error) {
       setMessage(error.message);
     }
@@ -195,6 +208,33 @@ function Menu() {
 
   return (
     <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      {orderConfirmation && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-[#3F2A32]/45 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="order-confirmation-title">
+          <div className="w-full max-w-md rounded-lg border border-[#6B4D57] bg-white p-6 text-[#3F2A32] shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#896A67]/15 text-[#3F2A32]">
+                  <CheckCircle2 size={26} />
+                </span>
+                <div>
+                  <h2 id="order-confirmation-title" className="text-2xl font-black">{orderConfirmation.title}</h2>
+                  <p className="mt-2 text-sm font-semibold text-[#7A5C5F]">{orderConfirmation.message}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setOrderConfirmation(null)} title="Close" aria-label="Close order confirmation" className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-[#896A67] bg-white text-[#3F2A32] hover:bg-[#896A67]/10">
+                <X size={17} />
+              </button>
+            </div>
+            <div className="mt-5 rounded-md bg-[#896A67]/10 px-4 py-3 text-sm font-bold text-[#3F2A32]">
+              {orderConfirmation.mealName} / Qty {orderConfirmation.quantity}
+            </div>
+            <button type="button" onClick={() => setOrderConfirmation(null)} className="mt-5 w-full rounded-md bg-[#3F2A32] px-4 py-3 font-black text-white hover:bg-[#6B4D57]">
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-bold uppercase tracking-wide text-[#6B4D57]">Menu and ordering</p>
