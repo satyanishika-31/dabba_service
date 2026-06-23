@@ -6,6 +6,7 @@ const subscriptionSchema = new Schema({
     mealsPerDay: { type: Number, default: 1 },
     startDate: { type: Date, required: true },
     endDate: { type: Date },
+    deliveryAddress: { type: String },
     status: { type: String, enum: ['ACTIVE', 'PAUSED', 'CANCELLED', 'COMPLETED'], default: 'ACTIVE' }
 }, { timestamps: true, versionKey: false })
 

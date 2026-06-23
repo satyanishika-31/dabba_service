@@ -4,6 +4,9 @@ const orderSchema = new Schema({
   customerId: { type: Types.ObjectId, ref: "user", required: true },
   menuId: { type: Types.ObjectId, ref: "menu", required: true },
   itemId: { type: Types.ObjectId, required: true },
+  providerId: { type: Types.ObjectId, ref: "user" },
+  kitchenId: { type: Types.ObjectId, ref: "kitchen" },
+  complaintAccepted: { type: Boolean, default: false },
   quantity: { type: Number, min: 1, default: 1 },
   status: {
     type: String,

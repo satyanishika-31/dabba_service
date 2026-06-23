@@ -8,7 +8,8 @@ import {
   Save,
   ShoppingBag,
   Truck,
-  UserCircle
+  UserCircle,
+  CalendarCheck
 } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { api } from "../api/client";
@@ -31,6 +32,9 @@ function Profile() {
   const [loading, setLoading] = useState(false);
   const [reachedOrderForPopup, setReachedOrderForPopup] = useState(null);
   const [dismissedReachedOrderIds, setDismissedReachedOrderIds] = useState([]);
+  const [subscription, setSubscription] = useState(null);
+  const [planAddressForm, setPlanAddressForm] = useState("");
+  const [showAddressModal, setShowAddressModal] = useState(null); // stores planName when subscribing
 
   const canViewMyOrders = user?.role === "USER";
   const canWorkDeliveries = user?.role === "DELIVERY" || user?.role === "ADMIN";
@@ -119,8 +123,11 @@ function Profile() {
       setKitchens(kitchenRes.payload || []);
 
       if (canViewMyOrders) {
+        const subRes = await api.getMySubscriptions();
+        setSubscription(subRes.payload || null);
+
         const reached = ordersList.find(
-          (order) => order.delivery?.status === "REACHED" && 
+          (order) => (order.delivery?.status === "PICKED" || order.delivery?.status === "REACHED") && 
                      !order.delivery?.userConfirmed && 
                      !dismissedReachedOrderIds.includes(order._id)
         );
@@ -164,6 +171,30 @@ function Profile() {
       await api.updateDeliveryStatus(id, status);
       await loadProfileData();
       setMessage("Delivery status updated.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
+  const subscribeToPlan = async (planName, address) => {
+    setMessage("");
+    try {
+      await api.createSubscription({ planName, deliveryAddress: address });
+      setPlanAddressForm("");
+      setShowAddressModal(null);
+      setMessage(`Successfully subscribed to ${planName} Plan!`);
+      await loadProfileData();
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
+  const cancelSubscription = async (id) => {
+    setMessage("");
+    try {
+      await api.cancelSubscription(id);
+      setMessage("Subscription cancelled successfully.");
+      await loadProfileData();
     } catch (error) {
       setMessage(error.message);
     }
@@ -239,6 +270,62 @@ function Profile() {
           {canViewMyOrders && (
             <section className="rounded-lg border border-[#6B4D57] bg-white p-5 shadow-sm">
               <h2 className="flex items-center gap-2 text-lg font-black text-[#3F2A32]">
+                <CalendarCheck size={19} /> My Subscription Plan
+              </h2>
+              {subscription ? (
+                <div className="mt-5 rounded-md bg-[#896A67]/10 p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wide text-[#896A67]">Active Plan</p>
+                      <h3 className="mt-1 text-2xl font-black text-[#3F2A32]">{subscription.planName} Plan</h3>
+                      <p className="mt-1 text-sm text-[#7A5C5F]">Started: {formatDate(subscription.startDate)}</p>
+                      <p className="mt-2 flex gap-2 text-sm text-[#3F2A32] font-semibold"><MapPin size={16} /> Delivery Address: {subscription.deliveryAddress}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => cancelSubscription(subscription._id)}
+                      className="rounded-md bg-red-600 px-4 py-2.5 text-xs font-black text-white hover:bg-red-700"
+                    >
+                      Cancel Subscription
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-5">
+                  <p className="text-sm text-[#7A5C5F] mb-4">You do not have an active subscription. Choose a plan below to start receiving daily home-style meals automatically:</p>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    {[
+                      { name: "Student", price: "1999", detail: "One home-style meal every weekday." },
+                      { name: "Office", price: "3499", detail: "Lunch and dinner with skip controls." },
+                      { name: "Family", price: "6499", detail: "Shared subscription for daily household meals." }
+                    ].map((plan) => (
+                      <div key={plan.name} className="flex flex-col justify-between rounded-md border border-[#896A67]/35 p-4 bg-white hover:border-[#6B4D57] transition">
+                        <div>
+                          <h4 className="font-black text-[#3F2A32]">{plan.name}</h4>
+                          <p className="mt-2 text-lg font-black text-[#3F2A32]">Rs. {plan.price}</p>
+                          <p className="mt-1 text-xs text-[#7A5C5F] leading-relaxed">{plan.detail}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddressModal(plan.name);
+                            setPlanAddressForm("");
+                          }}
+                          className="mt-4 w-full rounded bg-[#3F2A32] py-2 text-xs font-bold text-white hover:bg-[#6B4D57]"
+                        >
+                          Subscribe
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {canViewMyOrders && (
+            <section className="rounded-lg border border-[#6B4D57] bg-white p-5 shadow-sm">
+              <h2 className="flex items-center gap-2 text-lg font-black text-[#3F2A32]">
                 <ShoppingBag size={19} /> My orders and deliveries
               </h2>
               <div className="mt-5 space-y-4">
@@ -247,6 +334,7 @@ function Profile() {
                   const deliveryStatus = order.delivery?.status || "ASSIGNED";
                   const hasMismatch = (isUserConfirmed && deliveryStatus !== "DELIVERED") || 
                                       (!isUserConfirmed && deliveryStatus === "DELIVERED");
+                  const shouldShowComplaint = hasMismatch || deliveryStatus === "FAILED";
 
                   return (
                     <article key={order._id} className="rounded-md bg-[#896A67]/10 p-4">
@@ -262,10 +350,48 @@ function Profile() {
                       </div>
                       <p className="mt-3 flex gap-2 text-sm text-[#7A5C5F]"><MapPin size={16} /> {order.customerSnapshot?.address || "No delivery address recorded"}</p>
                       
-                      {hasMismatch && (
-                        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700 animate-pulse">
-                          Please contact customer care at +91 78956623145
-                        </p>
+                      {shouldShowComplaint && (
+                        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-4">
+                          {order.complaint ? (
+                            <p className="text-sm font-bold text-red-700">
+                              Complaint: "{order.complaint.description}" (Pending)
+                            </p>
+                          ) : (
+                            <div>
+                              <p className="text-sm font-bold text-red-700 mb-2">Something went wrong with this delivery. Please file a complaint:</p>
+                              <form
+                                onSubmit={async (e) => {
+                                  e.preventDefault();
+                                  const desc = e.target.elements.complaintDesc.value;
+                                  if (!desc.trim()) return;
+                                  try {
+                                    await api.raiseComplaint(order._id, { description: desc });
+                                    setMessage("Complaint submitted successfully.");
+                                    e.target.reset();
+                                    await loadProfileData();
+                                  } catch (err) {
+                                    setMessage(err.message);
+                                  }
+                                }}
+                                className="flex flex-col gap-2"
+                              >
+                                <textarea
+                                  name="complaintDesc"
+                                  required
+                                  placeholder="Describe the complaint..."
+                                  className="w-full rounded-md border border-red-300 p-2 text-sm text-gray-900 outline-none focus:border-red-500"
+                                  rows={2}
+                                />
+                                <button
+                                  type="submit"
+                                  className="self-end rounded bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
+                                >
+                                  Submit Complaint
+                                </button>
+                              </form>
+                            </div>
+                          )}
+                        </div>
                       )}
 
                       {!isUserConfirmed && deliveryStatus === "REACHED" && (
@@ -430,6 +556,49 @@ function Profile() {
                 Confirm Pickup
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {showAddressModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-[#6B4D57] bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-[#896A67]">Subscribe to {showAddressModal} Plan</p>
+              <h3 className="mt-1 text-2xl font-black text-[#3F2A32]">Enter Delivery Address</h3>
+              <p className="mt-1 text-sm text-[#7A5C5F]">Please enter the address where your daily meals should be delivered.</p>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!planAddressForm.trim()) return;
+                subscribeToPlan(showAddressModal, planAddressForm);
+              }}
+              className="mt-4 space-y-4"
+            >
+              <textarea
+                value={planAddressForm}
+                onChange={(e) => setPlanAddressForm(e.target.value)}
+                required
+                placeholder="Complete delivery address..."
+                className="w-full rounded-md border border-[#896A67] px-4 py-3 outline-none focus:border-[#6B4D57]"
+                rows={3}
+              />
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddressModal(null)}
+                  className="flex-1 rounded-md border border-[#896A67] py-2.5 text-sm font-bold text-[#3F2A32] hover:bg-[#896A67]/10"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-md bg-[#3F2A32] py-2.5 text-sm font-black text-white hover:bg-[#6B4D57]"
+                >
+                  Confirm Subscription
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

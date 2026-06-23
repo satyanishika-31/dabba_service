@@ -4,6 +4,7 @@ import { MenuModel } from '../models/MenuModel.js'
 import { OrderModel } from '../models/OrderModel.js'
 import { DeliveryModel } from '../models/DeliveryModel.js'
 import { UserModel } from '../models/UserModel.js'
+import { ComplaintModel } from '../models/ComplaintModel.js'
 
 export const orderApp = exp.Router()
 
@@ -21,6 +22,8 @@ orderApp.post('/', verifyToken('USER'), async (req, res) => {
       customerId: req.user.id,
       menuId,
       itemId,
+      providerId: item.providerId,
+      kitchenId: item.kitchenId,
       quantity,
       mealSnapshot: {
         name: item.name,
@@ -47,19 +50,25 @@ orderApp.post('/', verifyToken('USER'), async (req, res) => {
 
 orderApp.get('/mine', verifyToken('USER'), async (req, res) => {
   try {
-    const orders = await OrderModel.find({ customerId: req.user.id }).sort({ createdAt: -1 })
+    const orders = await OrderModel.find({ customerId: req.user.id, complaintAccepted: { $ne: true } }).sort({ createdAt: -1 })
     const deliveries = await DeliveryModel.find({ orderId: { $in: orders.map(order => order._id) } })
     const deliveryMap = new Map(deliveries.map(delivery => [delivery.orderId.toString(), delivery]))
+    const complaints = await ComplaintModel.find({ customerId: req.user.id })
+    const complaintMap = new Map(complaints.map(c => [c.orderId.toString(), c]))
     res.status(200).json({
       message: 'Customer orders',
-      payload: orders.map(order => ({ ...order.toObject(), delivery: deliveryMap.get(order._id.toString()) }))
+      payload: orders.map(order => ({
+        ...order.toObject(),
+        delivery: deliveryMap.get(order._id.toString()),
+        complaint: complaintMap.get(order._id.toString())
+      }))
     })
   } catch (err) { res.status(500).json({ message: err.message }) }
 })
 
 orderApp.get('/delivery', verifyToken('DELIVERY', 'ADMIN'), async (req, res) => {
   try {
-    const orders = await OrderModel.find().sort({ createdAt: -1 })
+    const orders = await OrderModel.find({ complaintAccepted: { $ne: true } }).sort({ createdAt: -1 })
     const deliveries = await DeliveryModel.find({ orderId: { $in: orders.map(order => order._id) } })
     const deliveryMap = new Map(deliveries.map(delivery => [delivery.orderId.toString(), delivery]))
     res.status(200).json({
@@ -108,7 +117,7 @@ orderApp.put('/:id/confirm-delivered', verifyToken('USER'), async (req, res) => 
 
     delivery.userConfirmed = true
 
-    if (delivery.status === 'REACHED' || delivery.status === 'DELIVERED') {
+    if (delivery.status === 'PICKED' || delivery.status === 'REACHED' || delivery.status === 'DELIVERED') {
       order.status = 'DELIVERED'
       delivery.status = 'DELIVERED'
       await order.save()
@@ -119,3 +128,88 @@ orderApp.put('/:id/confirm-delivered', verifyToken('USER'), async (req, res) => 
     res.status(200).json({ message: 'Delivery confirmed', payload: { order, delivery } })
   } catch (err) { res.status(500).json({ message: err.message }) }
 })
+
+// Raise complaint on order
+orderApp.post('/:id/complaint', verifyToken('USER'), async (req, res) => {
+  try {
+    const { description } = req.body
+    if (!description || !description.trim()) {
+      return res.status(400).json({ message: 'Complaint description is required' })
+    }
+
+    const order = await OrderModel.findById(req.params.id)
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+    if (order.customerId.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized' })
+    }
+
+    // Check if complaint already exists for this order
+    const existing = await ComplaintModel.findOne({ orderId: order._id })
+    if (existing) {
+      return res.status(400).json({ message: 'A complaint has already been raised for this order' })
+    }
+
+    // Resolve providerId and kitchenId
+    let providerId = order.providerId
+    let kitchenId = order.kitchenId
+
+    if (!providerId || !kitchenId) {
+      const menu = await MenuModel.findById(order.menuId)
+      if (menu) {
+        const item = menu.items.id(order.itemId)
+        if (item) {
+          providerId = item.providerId
+          kitchenId = item.kitchenId
+        }
+      }
+    }
+
+    if (!providerId || !kitchenId) {
+      return res.status(400).json({ message: 'Could not resolve the food provider for this order' })
+    }
+
+    const complaint = await ComplaintModel.create({
+      customerId: req.user.id,
+      orderId: order._id,
+      kitchenId,
+      providerId,
+      description
+    })
+
+    res.status(201).json({ message: 'Complaint raised successfully', payload: complaint })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Get pending complaints for provider
+orderApp.get('/provider/complaints', verifyToken('FOOD_PROVIDER', 'ADMIN'), async (req, res) => {
+  try {
+    const complaints = await ComplaintModel.find({ providerId: req.user.id })
+      .populate('orderId')
+      .populate('customerId', 'name email mobile')
+      .sort({ createdAt: -1 })
+    res.status(200).json({ message: 'Provider complaints', payload: complaints })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Accept (resolve & delete) complaint
+orderApp.delete('/complaints/:id', verifyToken('FOOD_PROVIDER', 'ADMIN'), async (req, res) => {
+  try {
+    const complaint = await ComplaintModel.findById(req.params.id)
+    if (!complaint) return res.status(404).json({ message: 'Complaint not found' })
+
+    if (req.user.role !== 'ADMIN' && complaint.providerId.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized' })
+    }
+
+    await OrderModel.findByIdAndUpdate(complaint.orderId, { complaintAccepted: true })
+    await ComplaintModel.findByIdAndDelete(req.params.id)
+    res.status(200).json({ message: 'Complaint resolved and accepted' })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+

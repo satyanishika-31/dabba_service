@@ -84,5 +84,21 @@ export const api = {
   }),
   confirmDelivered: (id) => request(`/orders/${id}/confirm-delivered`, {
     method: "PUT"
+  }),
+  raiseComplaint: (orderId, payload) => request(`/orders/${orderId}/complaint`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
+  getProviderComplaints: () => request("/orders/provider/complaints"),
+  acceptComplaint: (id) => request(`/orders/complaints/${id}`, {
+    method: "DELETE"
+  }),
+  createSubscription: (payload) => request("/auth/subscriptions", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
+  getMySubscriptions: () => request("/auth/subscriptions/mine"),
+  cancelSubscription: (id) => request(`/auth/subscriptions/${id}/cancel`, {
+    method: "PUT"
   })
 };

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { CalendarCheck, Clock, MapPin, ShieldCheck, Utensils } from "lucide-react";
 import heroImage from "../assets/hero.png";
+import { useAuth } from "../context/useAuth";
 
 const plans = [
   { name: "Student", price: "1999", detail: "One home-style meal every weekday." },
@@ -9,6 +10,9 @@ const plans = [
 ];
 
 function Home() {
+  const { isAuthenticated } = useAuth();
+  const subscriptionPath = isAuthenticated ? "/profile" : "/register";
+
   return (
     <>
       <section className="bg-[#896A67]/10 px-4 py-8 sm:px-6">
@@ -22,7 +26,7 @@ function Home() {
               Customers can register, view the weekly menu, and skip meals. Providers can watch daily meal counts and weekly kitchen reports.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link to="/register" className="rounded-md bg-[#3F2A32] px-5 py-3 text-sm font-black text-white hover:bg-[#6B4D57]">
+              <Link to={subscriptionPath} className="rounded-md bg-[#3F2A32] px-5 py-3 text-sm font-black text-white hover:bg-[#6B4D57]">
                 Start subscription
               </Link>
               <Link to="/menu" className="rounded-md border border-[#896A67] px-5 py-3 text-sm font-black text-[#3F2A32] hover:bg-white">
@@ -68,7 +72,7 @@ function Home() {
               <h3 className="text-xl font-black text-[#3F2A32]">{plan.name}</h3>
               <p className="mt-4 text-4xl font-black text-[#3F2A32]">Rs. {plan.price}</p>
               <p className="mt-3 text-sm leading-6 text-[#7A5C5F]">{plan.detail}</p>
-              <Link to="/register" className="mt-6 inline-flex rounded-md bg-[#3F2A32] px-4 py-2 text-sm font-black text-white hover:bg-[#6B4D57]">
+              <Link to={subscriptionPath} className="mt-6 inline-flex rounded-md bg-[#3F2A32] px-4 py-2 text-sm font-black text-white hover:bg-[#6B4D57]">
                 Choose plan
               </Link>
             </article>

@@ -5,6 +5,9 @@ import { UserModel } from '../models/UserModel.js'
 import { AddressModel } from '../models/AderssModels.js'
 import { KitchenModel } from '../models/KitchenModel.js'
 import { MenuModel } from '../models/MenuModel.js'
+import { SubscriptionModel } from '../models/SubscriptionModel.js'
+import { OrderModel } from '../models/OrderModel.js'
+import { DeliveryModel } from '../models/DeliveryModel.js'
 import { verifyToken } from '../middlewares/verifyToken.js'
 import { upload } from "../config/multer.js"
 import { uploadToCloudinary } from "../config/cloudinaryUpload.js"
@@ -500,3 +503,107 @@ commonApp.delete('/kitchens/:id',
     }
   }
 )
+
+// =======================
+// Subscription APIs
+// =======================
+
+// Create subscription
+commonApp.post('/subscriptions', verifyToken('USER'), async (req, res) => {
+  try {
+    const { planName, deliveryAddress } = req.body
+    if (!planName) return res.status(400).json({ message: 'Plan name is required' })
+    if (!deliveryAddress) return res.status(400).json({ message: 'Delivery address is required' })
+
+    const customer = await UserModel.findById(req.user.id).select('-password')
+    if (!customer) return res.status(404).json({ message: 'User not found' })
+
+    // Cancel existing active subscriptions
+    await SubscriptionModel.updateMany(
+      { userId: req.user.id, status: 'ACTIVE' },
+      { status: 'CANCELLED', endDate: new Date() }
+    )
+
+    // Create the new subscription
+    const subscription = await SubscriptionModel.create({
+      userId: req.user.id,
+      planName,
+      startDate: new Date(),
+      deliveryAddress,
+      status: 'ACTIVE'
+    })
+
+    // Auto-book orders for all menu items
+    const menus = await MenuModel.find()
+    for (const menu of menus) {
+      for (const item of menu.items) {
+        // Create an order
+        const order = await OrderModel.create({
+          customerId: req.user.id,
+          menuId: menu._id,
+          itemId: item._id,
+          providerId: item.providerId,
+          kitchenId: item.kitchenId,
+          quantity: 1,
+          mealSnapshot: {
+            name: item.name,
+            mealTime: item.mealTime,
+            day: menu.day,
+            kitchenName: item.kitchenName,
+            description: item.description,
+            price: item.price,
+            imageUrl: item.imageUrl
+          },
+          customerSnapshot: {
+            name: customer.name,
+            email: customer.email,
+            mobile: customer.mobile,
+            address: deliveryAddress
+          },
+          totalAmount: item.price
+        })
+
+        // Create the delivery record
+        await DeliveryModel.create({ orderId: order._id })
+      }
+    }
+
+    res.status(201).json({ message: 'Subscribed successfully. Active daily meals booked.', payload: subscription })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Get active subscription for user
+commonApp.get('/subscriptions/mine', verifyToken('USER'), async (req, res) => {
+  try {
+    const sub = await SubscriptionModel.findOne({ userId: req.user.id, status: 'ACTIVE' })
+    res.status(200).json({ message: 'Active subscription', payload: sub })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Cancel subscription
+commonApp.put('/subscriptions/:id/cancel', verifyToken('USER'), async (req, res) => {
+  try {
+    const sub = await SubscriptionModel.findById(req.params.id)
+    if (!sub) return res.status(404).json({ message: 'Subscription not found' })
+    if (sub.userId.toString() !== req.user.id) return res.status(403).json({ message: 'Not authorized' })
+
+    sub.status = 'CANCELLED'
+    sub.endDate = new Date()
+    await sub.save()
+
+    // Delete active unconfirmed orders created under this subscription
+    const activeOrders = await OrderModel.find({ customerId: req.user.id, status: 'ORDERED' })
+    const activeOrderIds = activeOrders.map(o => o._id)
+
+    await DeliveryModel.deleteMany({ orderId: { $in: activeOrderIds } })
+    await OrderModel.deleteMany({ _id: { $in: activeOrderIds } })
+
+    res.status(200).json({ message: 'Subscription cancelled. Pending orders removed.', payload: sub })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})

@@ -14,11 +14,25 @@ function normalizeId(value) {
   return value?._id || value?.id || value?.toString?.() || value;
 }
 
+function getDateForDay(dayName) {
+  const daysOfWeek = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const targetIndex = daysOfWeek.indexOf(dayName.toLowerCase());
+  if (targetIndex === -1) return new Date().toISOString().slice(0, 10);
+  
+  const today = new Date();
+  const currentDayIndex = today.getDay();
+  const diff = targetIndex - currentDayIndex;
+  const targetDate = new Date(today);
+  targetDate.setDate(today.getDate() + diff);
+  return targetDate.toISOString().slice(0, 10);
+}
+
 function Menu() {
   const { user, isAuthenticated } = useAuth();
   const [menus, setMenus] = useState([]);
   const [skips, setSkips] = useState([]);
   const [kitchens, setKitchens] = useState([]);
+  const [subscription, setSubscription] = useState(null);
   const [mealForm, setMealForm] = useState({
     day: "Monday",
     mealTime: "MORNING",
@@ -66,12 +80,14 @@ function Menu() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [menuRes, skipRes] = await Promise.all([
+      const [menuRes, skipRes, subRes] = await Promise.all([
         api.getMenu(),
-        canOrder ? api.getSkippedMeals() : Promise.resolve({ payload: [] })
+        canOrder ? api.getSkippedMeals() : Promise.resolve({ payload: [] }),
+        canOrder ? api.getMySubscriptions() : Promise.resolve({ payload: null })
       ]);
       setMenus(menuRes.payload || []);
       setSkips(skipRes.payload || []);
+      setSubscription(subRes?.payload || null);
 
       if (canManageMeals) {
         const kitchenRes = await api.getKitchens();
@@ -267,44 +283,92 @@ function Menu() {
                 )}
               </div>
               <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {items.map((item) => (
-                  <article key={item._id} className="overflow-hidden rounded-lg border border-[#6B4D57] bg-[#896A67]/10">
-                    <img src={item.imageUrl} alt={item.name} className="h-40 w-full object-cover" />
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-black uppercase tracking-wide text-[#896A67]">{item.mealTime}</p>
-                          <h3 className="mt-1 text-lg font-black text-[#3F2A32]">{item.name}</h3>
-                          <p className="mt-1 flex items-center gap-1 text-xs font-bold text-[#7A5C5F]">
-                            <Store size={13} /> {item.kitchenName || item.kitchenId?.name || "Kitchen"}
-                          </p>
+                {items.map((item) => {
+                  const mealDateStr = getDateForDay(day);
+                  const skipDoc = skips.find(s => s.mealTime === item.mealTime && new Date(s.date).toISOString().slice(0, 10) === mealDateStr);
+                  const isSkipped = !!skipDoc;
+                  const isSubscribed = canOrder && subscription;
+
+                  return (
+                    <article key={item._id} className="overflow-hidden rounded-lg border border-[#6B4D57] bg-[#896A67]/10">
+                      <img src={item.imageUrl} alt={item.name} className="h-40 w-full object-cover" />
+                      <div className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-wide text-[#896A67]">{item.mealTime}</p>
+                            <h3 className="mt-1 text-lg font-black text-[#3F2A32]">{item.name}</h3>
+                            <p className="mt-1 flex items-center gap-1 text-xs font-bold text-[#7A5C5F]">
+                              <Store size={13} /> {item.kitchenName || item.kitchenId?.name || "Kitchen"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center text-sm font-black text-[#3F2A32]">
+                              <IndianRupee size={14} /> {item.price}
+                            </span>
+                            {(canDeleteAnyMeal || (canManageMeals && normalizeId(item.providerId) === normalizeId(user))) && (
+                              <button
+                                type="button"
+                                onClick={() => deleteMeal(item.menuId || menu._id, item._id)}
+                                title="Delete meal"
+                                aria-label={`Delete ${item.name}`}
+                                className="grid h-8 w-8 place-items-center rounded-md border border-[#896A67] bg-white text-[#3F2A32] hover:bg-[#896A67]/10"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center text-sm font-black text-[#3F2A32]">
-                            <IndianRupee size={14} /> {item.price}
-                          </span>
-                          {(canDeleteAnyMeal || (canManageMeals && normalizeId(item.providerId) === normalizeId(user))) && (
-                            <button
-                              type="button"
-                              onClick={() => deleteMeal(item.menuId || menu._id, item._id)}
-                              title="Delete meal"
-                              aria-label={`Delete ${item.name}`}
-                              className="grid h-8 w-8 place-items-center rounded-md border border-[#896A67] bg-white text-[#3F2A32] hover:bg-[#896A67]/10"
-                            >
-                              <Trash2 size={15} />
+                        <p className="mt-3 min-h-12 text-sm leading-6 text-[#7A5C5F]">{item.description || "Fresh home-style meal."}</p>
+                        
+                        {isSubscribed ? (
+                          <div className="mt-4 space-y-2">
+                            {isSkipped ? (
+                              <div>
+                                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs font-bold text-red-700">
+                                  Skipped ({item.mealTime})
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => undoSkip(skipDoc._id)}
+                                  className="mt-2 w-full rounded-md border border-[#896A67] bg-white px-3 py-2 text-xs font-black text-[#3F2A32] hover:bg-[#896A67]/10"
+                                >
+                                  Undo Skip
+                                </button>
+                              </div>
+                            ) : (
+                              <div>
+                                <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-center text-xs font-bold text-green-700">
+                                  Booked ({item.mealTime})
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    try {
+                                      await api.skipMeal({ date: mealDateStr, mealTime: item.mealTime, reason: "Plan skip" });
+                                      await loadData();
+                                      setMessage("Meal skip recorded.");
+                                    } catch (err) {
+                                      setMessage(err.message);
+                                    }
+                                  }}
+                                  className="mt-2 w-full rounded-md bg-[#7A5C5F] px-3 py-2 text-xs font-black text-white hover:bg-[#6B4D57]"
+                                >
+                                  Skip {item.mealTime === 'MORNING' ? 'Morning' : item.mealTime === 'AFTERNOON' ? 'Afternoon' : 'Evening'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          canOrder && (
+                            <button type="button" onClick={() => placeOrder(item.menuId || menu._id, item._id)} className="mt-4 flex w-full items-center justify-center gap-2 rounded-md bg-[#3F2A32] px-4 py-3 text-sm font-black text-white hover:bg-[#6B4D57]">
+                              <ShoppingBag size={17} /> Order
                             </button>
-                          )}
-                        </div>
+                          )
+                        )}
                       </div>
-                      <p className="mt-3 min-h-12 text-sm leading-6 text-[#7A5C5F]">{item.description || "Fresh home-style meal."}</p>
-                      {canOrder && (
-                        <button type="button" onClick={() => placeOrder(item.menuId || menu._id, item._id)} className="mt-4 flex w-full items-center justify-center gap-2 rounded-md bg-[#3F2A32] px-4 py-3 text-sm font-black text-white hover:bg-[#6B4D57]">
-                          <ShoppingBag size={17} /> Order
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
                 {!items.length && <p className="text-sm text-[#7A5C5F]">No meals added for this day yet.</p>}
               </div>
             </section>
@@ -347,34 +411,65 @@ function Menu() {
           )}
 
           {canOrder && (
-            <>
-              <div className="rounded-lg border border-[#6B4D57] bg-white p-5 shadow-sm">
+            subscription ? (
+              <div className="rounded-lg border border-[#6B4D57] bg-white p-5 shadow-sm space-y-4">
                 <h2 className="flex items-center gap-2 text-lg font-black text-[#3F2A32]">
-                  <ShoppingBag size={19} /> Order details
+                  <CalendarDays size={19} /> Plan Active
                 </h2>
-                <input value={orderForm.deliveryAddress} onChange={(event) => setOrderForm({ ...orderForm, deliveryAddress: event.target.value })} placeholder="Delivery address" className="mt-5 w-full rounded-md border border-[#896A67] px-4 py-3" />
-                <input type="number" min="1" value={orderForm.quantity} onChange={(event) => setOrderForm({ ...orderForm, quantity: event.target.value })} className="mt-4 w-full rounded-md border border-[#896A67] px-4 py-3" />
-              </div>
-
-              <form onSubmit={skipMeal} className="rounded-lg border border-[#6B4D57] bg-white p-5 shadow-sm">
-                <h2 className="flex items-center gap-2 text-lg font-black text-[#3F2A32]">
-                  <UtensilsCrossed size={19} /> Skip a meal
-                </h2>
-                <input type="date" value={skipForm.date} onChange={(event) => setSkipForm({ ...skipForm, date: event.target.value })} className="mt-5 w-full rounded-md border border-[#896A67] px-4 py-3" />
-                <input value={skipForm.reason} onChange={(event) => setSkipForm({ ...skipForm, reason: event.target.value })} placeholder="Reason" className="mt-4 w-full rounded-md border border-[#896A67] px-4 py-3" />
-                <button className="mt-4 w-full rounded-md bg-[#7A5C5F] px-4 py-3 font-black text-white hover:bg-[#6B4D57]">Submit skip</button>
-                <div className="mt-5 space-y-3">
-                  {skips.map((skip) => (
-                    <div key={skip._id} className="flex items-center justify-between rounded-md bg-[#896A67]/10 px-3 py-3 text-sm">
-                      <span>{new Date(skip.date).toLocaleDateString()} {skip.reason ? `- ${skip.reason}` : ""}</span>
-                      <button type="button" onClick={() => undoSkip(skip._id)} title="Undo skip" className="text-[#3F2A32]">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ))}
+                <div className="rounded-md bg-[#896A67]/10 p-4">
+                  <p className="font-black text-[#3F2A32]">{subscription.planName} Plan</p>
+                  <p className="mt-1 text-sm text-[#7A5C5F]">Daily meals are automatically booked and delivered to:</p>
+                  <p className="mt-2 text-sm font-semibold text-[#3F2A32]">{subscription.deliveryAddress}</p>
                 </div>
-              </form>
-            </>
+                <p className="text-xs text-[#7A5C5F] italic">
+                  To skip meals under your plan, use the "Skip" buttons directly on the meals in the menu.
+                </p>
+                {skips.length > 0 && (
+                  <div className="border-t border-[#896A67]/20 pt-4">
+                    <h3 className="text-sm font-bold text-[#3F2A32] mb-3">Your Skipped Meals:</h3>
+                    <div className="space-y-2">
+                      {skips.map((skip) => (
+                        <div key={skip._id} className="flex items-center justify-between rounded-md bg-[#896A67]/10 px-3 py-2 text-sm">
+                          <span>{new Date(skip.date).toLocaleDateString()} ({skip.mealTime})</span>
+                          <button type="button" onClick={() => undoSkip(skip._id)} title="Undo skip" className="text-[#3F2A32] hover:text-red-600">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="rounded-lg border border-[#6B4D57] bg-white p-5 shadow-sm">
+                  <h2 className="flex items-center gap-2 text-lg font-black text-[#3F2A32]">
+                    <ShoppingBag size={19} /> Order details
+                  </h2>
+                  <input value={orderForm.deliveryAddress} onChange={(event) => setOrderForm({ ...orderForm, deliveryAddress: event.target.value })} placeholder="Delivery address" className="mt-5 w-full rounded-md border border-[#896A67] px-4 py-3" />
+                  <input type="number" min="1" value={orderForm.quantity} onChange={(event) => setOrderForm({ ...orderForm, quantity: event.target.value })} className="mt-4 w-full rounded-md border border-[#896A67] px-4 py-3" />
+                </div>
+
+                <form onSubmit={skipMeal} className="rounded-lg border border-[#6B4D57] bg-white p-5 shadow-sm">
+                  <h2 className="flex items-center gap-2 text-lg font-black text-[#3F2A32]">
+                    <UtensilsCrossed size={19} /> Skip a meal
+                  </h2>
+                  <input type="date" value={skipForm.date} onChange={(event) => setSkipForm({ ...skipForm, date: event.target.value })} className="mt-5 w-full rounded-md border border-[#896A67] px-4 py-3" />
+                  <input value={skipForm.reason} onChange={(event) => setSkipForm({ ...skipForm, reason: event.target.value })} placeholder="Reason" className="mt-4 w-full rounded-md border border-[#896A67] px-4 py-3" />
+                  <button className="mt-4 w-full rounded-md bg-[#7A5C5F] px-4 py-3 font-black text-white hover:bg-[#6B4D57]">Submit skip</button>
+                  <div className="mt-5 space-y-3">
+                    {skips.map((skip) => (
+                      <div key={skip._id} className="flex items-center justify-between rounded-md bg-[#896A67]/10 px-3 py-3 text-sm">
+                        <span>{new Date(skip.date).toLocaleDateString()} {skip.reason ? `- ${skip.reason}` : ""}</span>
+                        <button type="button" onClick={() => undoSkip(skip._id)} title="Undo skip" className="text-[#3F2A32]">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </form>
+              </>
+            )
           )}
 
           {!isAuthenticated && (
