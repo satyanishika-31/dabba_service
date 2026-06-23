@@ -29,6 +29,8 @@ function Profile() {
   const [kitchens, setKitchens] = useState([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [reachedOrderForPopup, setReachedOrderForPopup] = useState(null);
+  const [dismissedReachedOrderIds, setDismissedReachedOrderIds] = useState([]);
 
   const canViewMyOrders = user?.role === "USER";
   const canWorkDeliveries = user?.role === "DELIVERY" || user?.role === "ADMIN";
@@ -44,24 +46,55 @@ function Profile() {
   const profileForm = form || savedProfile;
 
   const visibleOrders = useMemo(() => (
-    orders.filter((order) => (
-      order.status !== "DELIVERED" &&
-      order.status !== "REACHED" &&
-      order.delivery?.status !== "DELIVERED" &&
-      order.delivery?.status !== "REACHED"
-    ))
+    orders.filter((order) => {
+      const isUserConfirmed = order.delivery?.userConfirmed || false;
+      const deliveryStatus = order.delivery?.status || "ASSIGNED";
+      
+      const hasMismatch = (isUserConfirmed && deliveryStatus !== "DELIVERED") || 
+                          (!isUserConfirmed && deliveryStatus === "DELIVERED");
+                          
+      if (hasMismatch) {
+        return true;
+      }
+      
+      if (isUserConfirmed && deliveryStatus === "DELIVERED") {
+        return false;
+      }
+      
+      return true;
+    })
   ), [orders]);
+
+  const visibleDeliveryOrders = useMemo(() => (
+    deliveryOrders.filter((order) => {
+      const isUserConfirmed = order.delivery?.userConfirmed || false;
+      const deliveryStatus = order.delivery?.status || "ASSIGNED";
+      
+      const hasMismatch = (isUserConfirmed && deliveryStatus !== "DELIVERED") || 
+                          (!isUserConfirmed && deliveryStatus === "DELIVERED");
+                          
+      if (hasMismatch) {
+        return true;
+      }
+      
+      if (isUserConfirmed && deliveryStatus === "DELIVERED") {
+        return false;
+      }
+      
+      return true;
+    })
+  ), [deliveryOrders]);
 
   const stats = useMemo(() => {
     const activeOrders = visibleOrders.filter((order) => order.status !== "CANCELLED").length;
-    const pendingDeliveries = deliveryOrders.filter((order) => order.delivery?.status !== "DELIVERED").length;
+    const pendingDeliveries = visibleDeliveryOrders.filter((order) => order.delivery?.status !== "DELIVERED").length;
     return [
       ["Role", user?.role || "USER"],
       ["My orders", visibleOrders.length],
       ["Active orders", activeOrders],
-      ["Deliveries", deliveryOrders.length || pendingDeliveries]
+      ["Deliveries", visibleDeliveryOrders.length || pendingDeliveries]
     ];
-  }, [deliveryOrders, user?.role, visibleOrders]);
+  }, [visibleDeliveryOrders, user?.role, visibleOrders]);
 
   const loadProfileData = async () => {
     if (!user) return;
@@ -80,9 +113,19 @@ function Profile() {
       else requests.push(Promise.resolve({ payload: [] }));
 
       const [orderRes, deliveryRes, kitchenRes] = await Promise.all(requests);
-      setOrders(orderRes.payload || []);
+      const ordersList = orderRes.payload || [];
+      setOrders(ordersList);
       setDeliveryOrders(deliveryRes.payload || []);
       setKitchens(kitchenRes.payload || []);
+
+      if (canViewMyOrders) {
+        const reached = ordersList.find(
+          (order) => order.delivery?.status === "REACHED" && 
+                     !order.delivery?.userConfirmed && 
+                     !dismissedReachedOrderIds.includes(order._id)
+        );
+        setReachedOrderForPopup(reached || null);
+      }
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -91,11 +134,13 @@ function Profile() {
   };
 
   useEffect(() => {
-    // Load role-specific records after the authenticated user has resolved.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadProfileData();
+    const interval = setInterval(() => {
+      loadProfileData();
+    }, 5000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.role, user?._id]);
+  }, [user?.role, user?._id, dismissedReachedOrderIds]);
 
   const updateField = (event) => {
     setForm((current) => ({ ...(current || savedProfile), [event.target.name]: event.target.value }));
@@ -197,21 +242,52 @@ function Profile() {
                 <ShoppingBag size={19} /> My orders and deliveries
               </h2>
               <div className="mt-5 space-y-4">
-                {visibleOrders.map((order) => (
-                  <article key={order._id} className="rounded-md bg-[#896A67]/10 p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-wide text-[#896A67]">{formatDate(order.createdAt)}</p>
-                        <h3 className="mt-1 text-lg font-black text-[#3F2A32]">{order.mealSnapshot?.name}</h3>
-                        <p className="mt-1 text-sm text-[#7A5C5F]">Qty {order.quantity} / Rs. {order.totalAmount}</p>
+                {visibleOrders.map((order) => {
+                  const isUserConfirmed = order.delivery?.userConfirmed || false;
+                  const deliveryStatus = order.delivery?.status || "ASSIGNED";
+                  const hasMismatch = (isUserConfirmed && deliveryStatus !== "DELIVERED") || 
+                                      (!isUserConfirmed && deliveryStatus === "DELIVERED");
+
+                  return (
+                    <article key={order._id} className="rounded-md bg-[#896A67]/10 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wide text-[#896A67]">{formatDate(order.createdAt)}</p>
+                          <h3 className="mt-1 text-lg font-black text-[#3F2A32]">{order.mealSnapshot?.name}</h3>
+                          <p className="mt-1 text-sm text-[#7A5C5F]">Qty {order.quantity} / Rs. {order.totalAmount}</p>
+                        </div>
+                        <p className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#3F2A32]">
+                          {order.status} / {deliveryStatus}
+                        </p>
                       </div>
-                      <p className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#3F2A32]">
-                        {order.status} / {order.delivery?.status || "ASSIGNED"}
-                      </p>
-                    </div>
-                    <p className="mt-3 flex gap-2 text-sm text-[#7A5C5F]"><MapPin size={16} /> {order.customerSnapshot?.address || "No delivery address recorded"}</p>
-                  </article>
-                ))}
+                      <p className="mt-3 flex gap-2 text-sm text-[#7A5C5F]"><MapPin size={16} /> {order.customerSnapshot?.address || "No delivery address recorded"}</p>
+                      
+                      {hasMismatch && (
+                        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700 animate-pulse">
+                          Please contact customer care at +91 78956623145
+                        </p>
+                      )}
+
+                      {!isUserConfirmed && deliveryStatus === "REACHED" && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await api.confirmDelivered(order._id);
+                              setMessage("Pickup confirmed successfully.");
+                              await loadProfileData();
+                            } catch (err) {
+                              setMessage(err.message);
+                            }
+                          }}
+                          className="mt-3 rounded-md bg-[#3F2A32] px-4 py-2 text-xs font-black text-white hover:bg-[#6B4D57]"
+                        >
+                          Confirm Pickup
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
                 {!visibleOrders.length && <p className="text-sm text-[#7A5C5F]">No active orders yet. Orders placed from the Menu page will appear here.</p>}
               </div>
             </section>
@@ -223,29 +299,43 @@ function Profile() {
                 <Truck size={19} /> Delivery records
               </h2>
               <div className="mt-5 space-y-4">
-                {deliveryOrders.map((order) => (
-                  <article key={order._id} className="rounded-md bg-[#896A67]/10 p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-wide text-[#896A67]">{order.mealSnapshot?.day} / {order.mealSnapshot?.mealTime}</p>
-                        <h3 className="mt-1 text-lg font-black text-[#3F2A32]">{order.mealSnapshot?.name}</h3>
-                        <p className="mt-1 text-sm text-[#7A5C5F]">{order.customerSnapshot?.name} / {order.customerSnapshot?.mobile}</p>
+                {visibleDeliveryOrders.map((order) => {
+                  const isUserConfirmed = order.delivery?.userConfirmed || false;
+                  const deliveryStatus = order.delivery?.status || "ASSIGNED";
+                  const hasMismatch = (isUserConfirmed && deliveryStatus !== "DELIVERED") || 
+                                      (!isUserConfirmed && deliveryStatus === "DELIVERED");
+
+                  return (
+                    <article key={order._id} className="rounded-md bg-[#896A67]/10 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wide text-[#896A67]">{order.mealSnapshot?.day} / {order.mealSnapshot?.mealTime}</p>
+                          <h3 className="mt-1 text-lg font-black text-[#3F2A32]">{order.mealSnapshot?.name}</h3>
+                          <p className="mt-1 text-sm text-[#7A5C5F]">{order.customerSnapshot?.name} / {order.customerSnapshot?.mobile}</p>
+                        </div>
+                        <p className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#3F2A32]">{deliveryStatus} {isUserConfirmed && "(Confirmed)"}</p>
                       </div>
-                      <p className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#3F2A32]">{order.delivery?.status || "ASSIGNED"}</p>
-                    </div>
-                    <p className="mt-3 flex gap-2 text-sm text-[#7A5C5F]"><MapPin size={16} /> {order.customerSnapshot?.address || "No address added"}</p>
-                    {canUpdateDeliveryStatus && (
-                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-                        {deliveryStatuses.map((status) => (
-                          <button key={status} type="button" onClick={() => updateDeliveryStatus(order._id, status)} className="rounded-md border border-[#896A67] bg-white px-3 py-2 text-xs font-black text-[#3F2A32] hover:bg-[#896A67]/10">
-                            {status}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                ))}
-                {!deliveryOrders.length && <p className="text-sm text-[#7A5C5F]">No delivery records yet.</p>}
+                      <p className="mt-3 flex gap-2 text-sm text-[#7A5C5F]"><MapPin size={16} /> {order.customerSnapshot?.address || "No address added"}</p>
+                      
+                      {hasMismatch && (
+                        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700 animate-pulse">
+                          Please contact customer care at +91 78956623145
+                        </p>
+                      )}
+
+                      {canUpdateDeliveryStatus && (
+                        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                          {deliveryStatuses.map((status) => (
+                            <button key={status} type="button" onClick={() => updateDeliveryStatus(order._id, status)} className="rounded-md border border-[#896A67] bg-white px-3 py-2 text-xs font-black text-[#3F2A32] hover:bg-[#896A67]/10">
+                              {status}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+                {!visibleDeliveryOrders.length && <p className="text-sm text-[#7A5C5F]">No delivery records yet.</p>}
               </div>
             </section>
           )}
@@ -276,6 +366,73 @@ function Profile() {
           )}
         </div>
       </div>
+      {reachedOrderForPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-[#6B4D57] bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-[#896A67]">Delivery Reached</p>
+                <h3 className="mt-1 text-2xl font-black text-[#3F2A32]">Confirm Your Pickup</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDismissedReachedOrderIds((prev) => [...prev, reachedOrderForPopup._id]);
+                  setReachedOrderForPopup(null);
+                }}
+                className="rounded-md p-1.5 text-[#7A5C5F] hover:bg-[#896A67]/10 hover:text-[#3F2A32]"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 border-y border-[#896A67]/20 py-4">
+              <div className="flex gap-4">
+                {reachedOrderForPopup.mealSnapshot?.imageUrl && (
+                  <img
+                    src={reachedOrderForPopup.mealSnapshot.imageUrl}
+                    alt={reachedOrderForPopup.mealSnapshot.name}
+                    className="h-16 w-16 rounded-md object-cover border border-[#6B4D57]/20"
+                  />
+                )}
+                <div>
+                  <h4 className="font-bold text-[#3F2A32]">{reachedOrderForPopup.mealSnapshot?.name}</h4>
+                  <p className="text-sm text-[#7A5C5F]">Qty {reachedOrderForPopup.quantity} / Rs. {reachedOrderForPopup.totalAmount}</p>
+                  <p className="mt-1 text-xs text-[#7A5C5F]">Kitchen: {reachedOrderForPopup.mealSnapshot?.kitchenName}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setDismissedReachedOrderIds((prev) => [...prev, reachedOrderForPopup._id]);
+                  setReachedOrderForPopup(null);
+                }}
+                className="flex-1 rounded-md border border-[#896A67] py-2.5 text-sm font-bold text-[#3F2A32] hover:bg-[#896A67]/10"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await api.confirmDelivered(reachedOrderForPopup._id);
+                    setMessage("Pickup confirmed successfully.");
+                    await loadProfileData();
+                  } catch (err) {
+                    setMessage(err.message);
+                  }
+                }}
+                className="flex-1 rounded-md bg-[#3F2A32] py-2.5 text-sm font-black text-white hover:bg-[#6B4D57]"
+              >
+                Confirm Pickup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

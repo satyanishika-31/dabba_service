@@ -101,13 +101,19 @@ orderApp.put('/:id/confirm-delivered', verifyToken('USER'), async (req, res) => 
     if (!order) return res.status(404).json({ message: 'Order not found' })
     if (order.customerId.toString() !== req.user.id) return res.status(403).json({ message: 'Not authorized' })
 
-    const delivery = await DeliveryModel.findOne({ orderId: order._id })
-    if (!delivery || delivery.status !== 'REACHED')
-      return res.status(400).json({ message: 'Delivery has not reached the customer yet' })
+    let delivery = await DeliveryModel.findOne({ orderId: order._id })
+    if (!delivery) {
+      delivery = await DeliveryModel.create({ orderId: order._id })
+    }
 
-    order.status = 'DELIVERED'
-    delivery.status = 'DELIVERED'
-    await order.save()
+    delivery.userConfirmed = true
+
+    if (delivery.status === 'REACHED' || delivery.status === 'DELIVERED') {
+      order.status = 'DELIVERED'
+      delivery.status = 'DELIVERED'
+      await order.save()
+    }
+
     await delivery.save()
 
     res.status(200).json({ message: 'Delivery confirmed', payload: { order, delivery } })
