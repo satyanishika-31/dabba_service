@@ -20,7 +20,7 @@ export const commonApp = exp.Router()
 const allowedRoles = ["USER", "FOOD_PROVIDER", "ADMIN", "DELIVERY"]
 const publicRoles = ["USER", "FOOD_PROVIDER", "DELIVERY"]
 const adminEmail = "admin@gmail.com"
-const adminPassword = "1234567890"
+const adminPassword = "123456"
 
 function normalizeRole(role) {
   const roleVal = (role || 'USER').toString().trim().toUpperCase()
@@ -71,6 +71,50 @@ async function getDefaultAdminUser() {
   )
 }
 
+function isApprovedProvider(user) {
+  return user?.role === "ADMIN" || user?.providerStatus === "APPROVED"
+}
+
+async function requireApprovedProvider(req, res) {
+  if (req.user.role === "ADMIN") return true
+
+  const provider = await UserModel.findById(req.user.id).select("role providerStatus")
+  if (!provider) {
+    res.status(404).json({ message: "Provider account not found" })
+    return false
+  }
+
+  if (provider.role !== "FOOD_PROVIDER" || !isApprovedProvider(provider)) {
+    res.status(403).json({ message: "Food provider account is waiting for admin approval" })
+    return false
+  }
+
+  return true
+}
+
+function pickProfileUpdates(body) {
+  const allowed = ["name", "email", "mobile"]
+  const updates = {}
+
+  for (const field of allowed) {
+    if (body[field] !== undefined) updates[field] = body[field]
+  }
+
+  if (body.providerDetails && typeof body.providerDetails === "object") {
+    updates.providerDetails = {
+      location: body.providerDetails.location,
+      serviceArea: body.providerDetails.serviceArea,
+      mealsCooked: body.providerDetails.mealsCooked,
+      kitchenName: body.providerDetails.kitchenName,
+      kitchenAddress: body.providerDetails.kitchenAddress,
+      dabbaServices: body.providerDetails.dabbaServices,
+      experience: body.providerDetails.experience
+    }
+  }
+
+  return updates
+}
+
 // =======================
 // ✅ REGISTER
 // =======================
@@ -81,6 +125,20 @@ commonApp.post("/users", upload.single("profileImage"), async (req, res) => {
 
     // normalize and default role to USER when missing/unknown
     newUser.role = normalizePublicRole(newUser.role)
+    if (newUser.role === "FOOD_PROVIDER") {
+      newUser.providerStatus = "PENDING"
+      newUser.providerDetails = {
+        location: newUser.location,
+        serviceArea: newUser.serviceArea,
+        mealsCooked: newUser.mealsCooked,
+        kitchenName: newUser.kitchenName,
+        kitchenAddress: newUser.kitchenAddress,
+        dabbaServices: newUser.dabbaServices,
+        experience: newUser.experience
+      }
+    } else {
+      newUser.providerStatus = "NOT_APPLICABLE"
+    }
 
     // upload image
     if (req.file) {
@@ -231,7 +289,7 @@ commonApp.put("/profile",
     let cloudinaryResult
 
     try {
-      const updates = req.body
+      const updates = pickProfileUpdates(req.body)
 
       if (req.file) {
         cloudinaryResult = await uploadToCloudinary(req.file.buffer)
@@ -428,7 +486,22 @@ commonApp.post('/kitchens',
   verifyToken('FOOD_PROVIDER', 'ADMIN'),
   async (req, res) => {
     try {
-      const data = { ...req.body, ownerId: req.user.id }
+      if (!(await requireApprovedProvider(req, res))) return
+
+      const provider = req.user.role === 'ADMIN'
+        ? null
+        : await UserModel.findById(req.user.id).select('providerDetails')
+
+      const data = {
+        ...req.body,
+        ownerId: req.user.id,
+        name: req.body.name || provider?.providerDetails?.kitchenName,
+        city: req.body.city || provider?.providerDetails?.location,
+        addressLine: req.body.addressLine || provider?.providerDetails?.kitchenAddress,
+        mealsCooked: req.body.mealsCooked || provider?.providerDetails?.mealsCooked,
+        serviceArea: req.body.serviceArea || provider?.providerDetails?.serviceArea,
+        dabbaServices: req.body.dabbaServices || provider?.providerDetails?.dabbaServices
+      }
       const kitchen = await KitchenModel.create(data)
       res.status(201).json({ message: 'Kitchen created', payload: kitchen })
     } catch (err) {
@@ -442,6 +515,8 @@ commonApp.get('/kitchens',
   verifyToken('FOOD_PROVIDER', 'ADMIN', 'USER'),
   async (req, res) => {
     try {
+      if (req.user.role === 'FOOD_PROVIDER' && !(await requireApprovedProvider(req, res))) return
+
       let query = {}
       if (req.user.role === 'FOOD_PROVIDER') query.ownerId = req.user.id
       const kitchens = await KitchenModel.find(query)
@@ -457,6 +532,8 @@ commonApp.put('/kitchens/:id',
   verifyToken('FOOD_PROVIDER', 'ADMIN'),
   async (req, res) => {
     try {
+      if (!(await requireApprovedProvider(req, res))) return
+
       const { id } = req.params
       const kitchen = await KitchenModel.findById(id)
       if (!kitchen) 
@@ -477,6 +554,8 @@ commonApp.delete('/kitchens/:id',
   verifyToken('FOOD_PROVIDER', 'ADMIN'),
   async (req, res) => {
     try {
+      if (!(await requireApprovedProvider(req, res))) return
+
       const { id } = req.params
       const kitchen = await KitchenModel.findById(id)
       if (!kitchen) return res.status(404).json({ message: 'Kitchen not found' })

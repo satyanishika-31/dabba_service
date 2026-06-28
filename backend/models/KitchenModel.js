@@ -28,6 +28,18 @@ const kitchenSchema = new Schema({
     type: String,
     match: [/^[0-9]{10}$/, "Enter valid mobile number"]
   },
+  mealsCooked: {
+    type: String,
+    trim: true
+  },
+  serviceArea: {
+    type: String,
+    trim: true
+  },
+  dabbaServices: {
+    type: String,
+    trim: true
+  },
   isActive: {
     type: Boolean,
     default: true

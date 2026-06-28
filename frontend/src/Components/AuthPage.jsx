@@ -8,7 +8,14 @@ const initialForm = {
   mobile: "",
   email: "",
   password: "",
-  role: "USER"
+  role: "USER",
+  location: "",
+  serviceArea: "",
+  mealsCooked: "",
+  kitchenName: "",
+  kitchenAddress: "",
+  dabbaServices: "",
+  experience: ""
 };
 
 function AuthPage({ mode }) {
@@ -29,12 +36,13 @@ function AuthPage({ mode }) {
     setIsSubmitting(true);
 
     try {
+      let res;
       if (isRegister) {
-        await register(form);
+        res = await register(form);
       } else {
-        await login({ email: form.email, password: form.password, role: form.role });
+        res = await login({ email: form.email, password: form.password, role: form.role });
       }
-      navigate("/menu");
+      navigate(res?.payload?.role === "FOOD_PROVIDER" && res?.payload?.providerStatus !== "APPROVED" ? "/profile" : "/menu");
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -92,6 +100,39 @@ function AuthPage({ mode }) {
                   <option value="DELIVERY">Delivery</option>
                 </select>
               </label>
+            )}
+
+            {isRegister && form.role === "FOOD_PROVIDER" && (
+              <>
+                <label className="block">
+                  <span className="text-sm font-bold text-[#3F2A32]">Location</span>
+                  <input name="location" value={form.location} onChange={updateField} required className="mt-2 w-full rounded-md border border-[#896A67] px-4 py-3 outline-none focus:border-[#6B4D57]" />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-bold text-[#3F2A32]">Service area</span>
+                  <input name="serviceArea" value={form.serviceArea} onChange={updateField} required className="mt-2 w-full rounded-md border border-[#896A67] px-4 py-3 outline-none focus:border-[#6B4D57]" />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="text-sm font-bold text-[#3F2A32]">Kitchen name</span>
+                  <input name="kitchenName" value={form.kitchenName} onChange={updateField} required className="mt-2 w-full rounded-md border border-[#896A67] px-4 py-3 outline-none focus:border-[#6B4D57]" />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="text-sm font-bold text-[#3F2A32]">Kitchen address</span>
+                  <textarea name="kitchenAddress" value={form.kitchenAddress} onChange={updateField} required rows={2} className="mt-2 w-full rounded-md border border-[#896A67] px-4 py-3 outline-none focus:border-[#6B4D57]" />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="text-sm font-bold text-[#3F2A32]">Meals you cook</span>
+                  <textarea name="mealsCooked" value={form.mealsCooked} onChange={updateField} required rows={2} placeholder="Breakfast, lunch, dinner, veg thali..." className="mt-2 w-full rounded-md border border-[#896A67] px-4 py-3 outline-none focus:border-[#6B4D57]" />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="text-sm font-bold text-[#3F2A32]">Dabba services</span>
+                  <textarea name="dabbaServices" value={form.dabbaServices} onChange={updateField} required rows={2} placeholder="Daily tiffin, weekly plans, office lunch..." className="mt-2 w-full rounded-md border border-[#896A67] px-4 py-3 outline-none focus:border-[#6B4D57]" />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="text-sm font-bold text-[#3F2A32]">Experience</span>
+                  <input name="experience" value={form.experience} onChange={updateField} placeholder="Example: 3 years" className="mt-2 w-full rounded-md border border-[#896A67] px-4 py-3 outline-none focus:border-[#6B4D57]" />
+                </label>
+              </>
             )}
           </div>
 

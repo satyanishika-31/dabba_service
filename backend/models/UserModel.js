@@ -32,8 +32,28 @@ const userSchema = new Schema({
     },
     profileImage: {
         type: String
-    }
-    ,
+    },
+    providerStatus: {
+        type: String,
+        enum: ["NOT_APPLICABLE", "PENDING", "APPROVED", "REJECTED"],
+        default: "NOT_APPLICABLE"
+    },
+    providerDetails: {
+        location: { type: String, trim: true },
+        serviceArea: { type: String, trim: true },
+        mealsCooked: { type: String, trim: true },
+        kitchenName: { type: String, trim: true },
+        kitchenAddress: { type: String, trim: true },
+        dabbaServices: { type: String, trim: true },
+        experience: { type: String, trim: true }
+    },
+    providerReviewedAt: {
+        type: Date
+    },
+    providerReviewedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "user"
+    },
     isBlocked: {
         type: Boolean,
         default: false

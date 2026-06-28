@@ -11,7 +11,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     api.checkAuth()
-      .then((res) => setUser((current) => current || res.payload))
+      .then((res) => setUser(res.payload))
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);

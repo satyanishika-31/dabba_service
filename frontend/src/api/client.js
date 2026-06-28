@@ -39,6 +39,11 @@ export const api = {
     method: "PUT",
     body: payload instanceof FormData ? payload : JSON.stringify(payload)
   }),
+  getProviders: () => request("/admin-api/providers"),
+  updateProviderStatus: (id, status) => request(`/admin-api/providers/${id}/status`, {
+    method: "PUT",
+    body: JSON.stringify({ status })
+  }),
   getMenu: () => request("/menu"),
   createMenu: (payload) => request("/menu", {
     method: "POST",

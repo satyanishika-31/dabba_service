@@ -11,8 +11,10 @@ const menuItemSchema = new Schema({
   price: { type: Number, required: true, min: 0 },
   imageUrl: { type: String, required: true, trim: true },
   providerId: { type: Types.ObjectId, ref: "user" },
+  providerEmail: { type: String, trim: true },
   kitchenId: { type: Types.ObjectId, ref: "kitchen" },
   kitchenName: { type: String, required: true, trim: true },
+  kitchenLocation: { type: String, trim: true },
   isAvailable: { type: Boolean, default: true }
 }, { timestamps: true });
 

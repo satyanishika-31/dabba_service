@@ -2,12 +2,32 @@ import exp from 'express'
 import { verifyToken } from '../middlewares/verifyToken.js'
 import { SubscriptionModel } from '../models/SubscriptionModel.js'
 import { SkipMealModel } from '../models/SkipMealModel.js'
+import { UserModel } from '../models/UserModel.js'
 
 export const kitchenApp = exp.Router()
+
+async function requireApprovedProvider(req, res) {
+  if (req.user.role === 'ADMIN') return true
+
+  const provider = await UserModel.findById(req.user.id).select('role providerStatus')
+  if (!provider) {
+    res.status(404).json({ message: 'Provider account not found' })
+    return false
+  }
+
+  if (provider.role !== 'FOOD_PROVIDER' || provider.providerStatus !== 'APPROVED') {
+    res.status(403).json({ message: 'Food provider account is waiting for admin approval' })
+    return false
+  }
+
+  return true
+}
 
 // Count today's meals for a kitchen
 kitchenApp.get('/today-count', verifyToken('FOOD_PROVIDER', 'ADMIN'), async (req, res) => {
   try {
+    if (!(await requireApprovedProvider(req, res))) return
+
     const start = new Date()
     start.setHours(0,0,0,0)
     const end = new Date()
@@ -29,6 +49,8 @@ kitchenApp.get('/today-count', verifyToken('FOOD_PROVIDER', 'ADMIN'), async (req
 // Weekly report for kitchen: orders per day
 kitchenApp.get('/weekly-report', verifyToken('FOOD_PROVIDER', 'ADMIN'), async (req, res) => {
   try {
+    if (!(await requireApprovedProvider(req, res))) return
+
     const now = new Date()
     const days = []
     for (let i = 6; i >= 0; i--) {

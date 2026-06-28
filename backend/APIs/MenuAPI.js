@@ -2,6 +2,7 @@ import exp from 'express'
 import { verifyToken } from '../middlewares/verifyToken.js'
 import { MenuModel } from '../models/MenuModel.js'
 import { KitchenModel } from '../models/KitchenModel.js'
+import { UserModel } from '../models/UserModel.js'
 import { upload } from '../config/multer.js'
 import { uploadToCloudinary } from '../config/cloudinaryUpload.js'
 
@@ -14,9 +15,28 @@ function normalizeDay(day) {
   return allowedDays.find(candidate => candidate.toLowerCase() === normalized)
 }
 
+async function requireApprovedProvider(req, res) {
+  if (req.user.role === 'ADMIN') return true
+
+  const provider = await UserModel.findById(req.user.id).select('role providerStatus')
+  if (!provider) {
+    res.status(404).json({ message: 'Provider account not found' })
+    return false
+  }
+
+  if (provider.role !== 'FOOD_PROVIDER' || provider.providerStatus !== 'APPROVED') {
+    res.status(403).json({ message: 'Food provider account is waiting for admin approval' })
+    return false
+  }
+
+  return true
+}
+
 // Create menu meal. Meals must belong to the provider, while admins can publish for any kitchen.
 menuApp.post('/', verifyToken('FOOD_PROVIDER', 'ADMIN'), upload.single('image'), async (req, res) => {
   try {
+    if (!(await requireApprovedProvider(req, res))) return
+
     const { day, notes, name, mealTime, description, price, kitchenId, imageUrl } = req.body
     const menuDay = normalizeDay(day)
 
@@ -30,6 +50,9 @@ menuApp.post('/', verifyToken('FOOD_PROVIDER', 'ADMIN'), upload.single('image'),
     if (!kitchen) return res.status(404).json({ message: 'Kitchen not found' })
     if (req.user.role !== 'ADMIN' && kitchen.ownerId.toString() !== req.user.id)
       return res.status(403).json({ message: 'You can add meals only for your own kitchen' })
+
+    const provider = await UserModel.findById(kitchen.ownerId).select('email')
+    const kitchenLocation = [kitchen.addressLine, kitchen.city].filter(Boolean).join(', ')
 
     const finalImageUrl = req.file
       ? (await uploadToCloudinary(req.file.buffer)).secure_url
@@ -50,7 +73,9 @@ menuApp.post('/', verifyToken('FOOD_PROVIDER', 'ADMIN'), upload.single('image'),
               imageUrl: finalImageUrl,
               kitchenId,
               kitchenName: kitchen.name,
-              providerId: req.user.id
+              kitchenLocation,
+              providerId: kitchen.ownerId,
+              providerEmail: provider?.email
             }
           }
         } : {})
@@ -84,6 +109,8 @@ menuApp.get('/:day', async (req, res) => {
 // Update menu
 menuApp.put('/:id', verifyToken('ADMIN', 'FOOD_PROVIDER'), async (req, res) => {
   try {
+    if (!(await requireApprovedProvider(req, res))) return
+
     const updated = await MenuModel.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' })
     res.status(200).json({ message: 'Menu updated', payload: updated })
   } catch (err) { res.status(500).json({ message: err.message }) }
@@ -92,6 +119,8 @@ menuApp.put('/:id', verifyToken('ADMIN', 'FOOD_PROVIDER'), async (req, res) => {
 // Delete a meal item from a menu. Providers can delete only meals they added.
 menuApp.delete('/:menuId/items/:itemId', verifyToken('ADMIN', 'FOOD_PROVIDER'), async (req, res) => {
   try {
+    if (!(await requireApprovedProvider(req, res))) return
+
     const menu = await MenuModel.findById(req.params.menuId)
     if (!menu) return res.status(404).json({ message: 'Menu not found' })
 
