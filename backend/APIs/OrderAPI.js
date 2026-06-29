@@ -149,31 +149,26 @@ orderApp.put('/:id/confirm-delivered', verifyToken('USER'), async (req, res) => 
     if (!order) return res.status(404).json({ message: 'Order not found' })
     if (order.customerId.toString() !== req.user.id) return res.status(403).json({ message: 'Not authorized' })
 
-    const packQuery = order.packId
-      ? { packId: order.packId, customerId: order.customerId }
-      : { _id: order._id }
-    const packOrders = await OrderModel.find(packQuery)
-    const packOrderIds = packOrders.map(packOrder => packOrder._id)
-    const deliveries = await DeliveryModel.find({ orderId: { $in: packOrderIds } })
-    const canMarkDelivered = deliveries.some(delivery => (
-      delivery.status === 'PICKED' || delivery.status === 'REACHED' || delivery.status === 'DELIVERED'
-    ))
+    const currentDelivery = await DeliveryModel.findOne({ orderId: order._id })
+    const canMarkDelivered = currentDelivery && (
+      currentDelivery.status === 'PICKED' || currentDelivery.status === 'REACHED' || currentDelivery.status === 'DELIVERED'
+    )
 
-    await Promise.all(packOrderIds.map(orderId => DeliveryModel.findOneAndUpdate(
-      { orderId },
+    const delivery = await DeliveryModel.findOneAndUpdate(
+      { orderId: order._id },
       {
         userConfirmed: true,
         ...(canMarkDelivered ? { status: 'DELIVERED' } : {})
       },
       { new: true, upsert: true }
-    )))
+    )
 
     if (canMarkDelivered) {
-      await OrderModel.updateMany({ _id: { $in: packOrderIds } }, { status: 'DELIVERED' })
+      order.status = 'DELIVERED'
+      await order.save()
     }
 
     const updatedOrder = await OrderModel.findById(req.params.id)
-    const delivery = await DeliveryModel.findOne({ orderId: order._id })
 
     res.status(200).json({ message: 'Delivery confirmed', payload: { order: updatedOrder, delivery } })
   } catch (err) { res.status(500).json({ message: err.message }) }

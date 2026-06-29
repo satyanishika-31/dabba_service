@@ -30,7 +30,7 @@ function Profile() {
   const [kitchens, setKitchens] = useState([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [reachedOrderForPopup, setReachedOrderForPopup] = useState(null);
+  const [reachedOrdersForPopup, setReachedOrdersForPopup] = useState([]);
   const [dismissedReachedOrderIds, setDismissedReachedOrderIds] = useState([]);
   const [subscription, setSubscription] = useState(null);
   const [planAddressForm, setPlanAddressForm] = useState("");
@@ -126,12 +126,12 @@ function Profile() {
         const subRes = await api.getMySubscriptions();
         setSubscription(subRes.payload || null);
 
-        const reached = ordersList.find(
+        const reachedOrders = ordersList.filter(
           (order) => (order.delivery?.status === "PICKED" || order.delivery?.status === "REACHED") && 
                      !order.delivery?.userConfirmed && 
                      !dismissedReachedOrderIds.includes(order._id)
         );
-        setReachedOrderForPopup(reached || null);
+        setReachedOrdersForPopup(reachedOrders);
       }
     } catch (error) {
       setMessage(error.message);
@@ -494,70 +494,78 @@ function Profile() {
           )}
         </div>
       </div>
-      {reachedOrderForPopup && (
+      {reachedOrdersForPopup.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-md overflow-hidden rounded-xl border border-[#6B4D57] bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-[#6B4D57] bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wide text-[#896A67]">Delivery Reached</p>
-                <h3 className="mt-1 text-2xl font-black text-[#3F2A32]">Confirm Your Pickup</h3>
+                <h3 className="mt-1 text-2xl font-black text-[#3F2A32]">Confirm Your Meals</h3>
               </div>
               <button
                 type="button"
                 onClick={() => {
-                  setDismissedReachedOrderIds((prev) => [...prev, reachedOrderForPopup._id]);
-                  setReachedOrderForPopup(null);
+                  setDismissedReachedOrderIds((prev) => [
+                    ...new Set([...prev, ...reachedOrdersForPopup.map((order) => order._id)])
+                  ]);
+                  setReachedOrdersForPopup([]);
                 }}
-                className="rounded-md p-1.5 text-[#7A5C5F] hover:bg-[#896A67]/10 hover:text-[#3F2A32]"
+                className="hidden rounded-md p-1.5 text-[#7A5C5F] hover:bg-[#896A67]/10 hover:text-[#3F2A32]"
               >
                 ✕
               </button>
             </div>
 
-            <div className="mt-4 border-y border-[#896A67]/20 py-4">
-              <div className="flex gap-4">
-                {reachedOrderForPopup.mealSnapshot?.imageUrl && (
-                  <img
-                    src={reachedOrderForPopup.mealSnapshot.imageUrl}
-                    alt={reachedOrderForPopup.mealSnapshot.name}
-                    className="h-16 w-16 rounded-md object-cover border border-[#6B4D57]/20"
-                  />
-                )}
-                <div>
-                  <h4 className="font-bold text-[#3F2A32]">{reachedOrderForPopup.mealSnapshot?.name}</h4>
-                  <p className="text-sm text-[#7A5C5F]">Qty {reachedOrderForPopup.quantity} / Rs. {reachedOrderForPopup.totalAmount}</p>
-                  <p className="mt-1 text-xs text-[#7A5C5F]">Kitchen: {reachedOrderForPopup.mealSnapshot?.kitchenName}</p>
+            <div className="mt-4 max-h-[55vh] space-y-3 overflow-y-auto border-y border-[#896A67]/20 py-4">
+              {reachedOrdersForPopup.map((order) => (
+                <div key={order._id} className="flex flex-col gap-3 rounded-md bg-[#896A67]/10 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex gap-4">
+                    {order.mealSnapshot?.imageUrl && (
+                      <img
+                        src={order.mealSnapshot.imageUrl}
+                        alt={order.mealSnapshot.name}
+                        className="h-16 w-16 rounded-md border border-[#6B4D57]/20 object-cover"
+                      />
+                    )}
+                    <div>
+                      <h4 className="font-bold text-[#3F2A32]">{order.mealSnapshot?.name}</h4>
+                      <p className="text-sm text-[#7A5C5F]">Qty {order.quantity} / Rs. {order.totalAmount}</p>
+                      <p className="mt-1 text-xs text-[#7A5C5F]">Kitchen: {order.mealSnapshot?.kitchenName}</p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDismissedReachedOrderIds((prev) => [...new Set([...prev, order._id])]);
+                        setReachedOrdersForPopup((current) => current.filter((item) => item._id !== order._id));
+                      }}
+                      className="rounded-md border border-[#896A67] bg-white px-4 py-2.5 text-sm font-bold text-[#3F2A32] hover:bg-[#896A67]/10"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await api.confirmDelivered(order._id);
+                          setMessage("Pickup confirmed successfully.");
+                          setDismissedReachedOrderIds((prev) => [...new Set([...prev, order._id])]);
+                          setReachedOrdersForPopup((current) => current.filter((item) => item._id !== order._id));
+                          await loadProfileData();
+                        } catch (err) {
+                          setMessage(err.message);
+                        }
+                      }}
+                      className="rounded-md bg-[#3F2A32] px-4 py-2.5 text-sm font-black text-white hover:bg-[#6B4D57]"
+                    >
+                      Confirm
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
 
-            <div className="mt-6 flex gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setDismissedReachedOrderIds((prev) => [...prev, reachedOrderForPopup._id]);
-                  setReachedOrderForPopup(null);
-                }}
-                className="flex-1 rounded-md border border-[#896A67] py-2.5 text-sm font-bold text-[#3F2A32] hover:bg-[#896A67]/10"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await api.confirmDelivered(reachedOrderForPopup._id);
-                    setMessage("Pickup confirmed successfully.");
-                    await loadProfileData();
-                  } catch (err) {
-                    setMessage(err.message);
-                  }
-                }}
-                className="flex-1 rounded-md bg-[#3F2A32] py-2.5 text-sm font-black text-white hover:bg-[#6B4D57]"
-              >
-                Confirm Pickup
-              </button>
-            </div>
           </div>
         </div>
       )}
