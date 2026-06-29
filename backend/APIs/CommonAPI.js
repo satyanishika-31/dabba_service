@@ -612,42 +612,12 @@ commonApp.post('/subscriptions', verifyToken('USER'), async (req, res) => {
       status: 'ACTIVE'
     })
 
-    // Auto-book orders for all menu items
-    const menus = await MenuModel.find()
-    for (const menu of menus) {
-      for (const item of menu.items) {
-        // Create an order
-        const order = await OrderModel.create({
-          customerId: req.user.id,
-          menuId: menu._id,
-          itemId: item._id,
-          providerId: item.providerId,
-          kitchenId: item.kitchenId,
-          quantity: 1,
-          mealSnapshot: {
-            name: item.name,
-            mealTime: item.mealTime,
-            day: menu.day,
-            kitchenName: item.kitchenName,
-            description: item.description,
-            price: item.price,
-            imageUrl: item.imageUrl
-          },
-          customerSnapshot: {
-            name: customer.name,
-            email: customer.email,
-            mobile: customer.mobile,
-            address: deliveryAddress
-          },
-          totalAmount: item.price
-        })
+    const oldActiveOrders = await OrderModel.find({ customerId: req.user.id, status: 'ORDERED' })
+    const oldActiveOrderIds = oldActiveOrders.map(order => order._id)
+    await DeliveryModel.deleteMany({ orderId: { $in: oldActiveOrderIds } })
+    await OrderModel.deleteMany({ _id: { $in: oldActiveOrderIds } })
 
-        // Create the delivery record
-        await DeliveryModel.create({ orderId: order._id })
-      }
-    }
-
-    res.status(201).json({ message: 'Subscribed successfully. Active daily meals booked.', payload: subscription })
+    res.status(201).json({ message: 'Subscribed successfully. Select meals from the menu to book them.', payload: subscription })
   } catch (err) {
     res.status(500).json({ message: err.message })
   }

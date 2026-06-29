@@ -82,6 +82,9 @@ export const api = {
     body: JSON.stringify(payload)
   }),
   getMyOrders: () => request("/orders/mine"),
+  cancelOrder: (id) => request(`/orders/${id}`, {
+    method: "DELETE"
+  }),
   getDeliveryOrders: () => request("/orders/delivery"),
   updateDeliveryStatus: (id, status) => request(`/orders/${id}/delivery-status`, {
     method: "PUT",

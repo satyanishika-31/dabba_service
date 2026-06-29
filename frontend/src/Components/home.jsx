@@ -1,17 +1,33 @@
 import { Link } from "react-router-dom";
-import { CalendarCheck, Clock, MapPin, ShieldCheck, Utensils } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CalendarCheck, Clock, MapPin, ShieldCheck, ShoppingBag, Utensils } from "lucide-react";
 import heroImage from "../assets/hero.png";
 import { useAuth } from "../context/useAuth";
+import { api } from "../api/client";
 
 const plans = [
-  { name: "Student", price: "1999", detail: "One home-style meal every weekday." },
-  { name: "Office", price: "3499", detail: "Lunch and dinner with skip controls." },
-  { name: "Family", price: "6499", detail: "Shared subscription for daily household meals." }
+  { name: "Student", price: "1999", detail: "Create a plan, then choose meals from the menu." },
+  { name: "Office", price: "3499", detail: "Select separate meals and quantities as needed." },
+  { name: "Family", price: "6499", detail: "Add only the meals your household wants, up to 4 per order." }
 ];
 
 function Home() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const [selectedMeals, setSelectedMeals] = useState([]);
   const subscriptionPath = isAuthenticated ? "/profile" : "/register";
+
+  useEffect(() => {
+    if (!isAuthenticated || user?.role !== "USER") {
+      setSelectedMeals([]);
+      return;
+    }
+
+    api.getMyOrders()
+      .then((res) => {
+        setSelectedMeals((res.payload || []).filter((order) => order.status === "ORDERED"));
+      })
+      .catch(() => setSelectedMeals([]));
+  }, [isAuthenticated, user?.role]);
 
   return (
     <>
@@ -23,7 +39,7 @@ function Home() {
               Fresh home-style meals managed from one dashboard.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-[#7A5C5F]">
-              Customers can register, view the weekly menu, and skip meals. Providers can watch daily meal counts and weekly kitchen reports.
+              Customers can register, view the menu, and select only the meals they want. Providers can manage kitchens after admin approval.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link to={subscriptionPath} className="rounded-md bg-[#3F2A32] px-5 py-3 text-sm font-black text-white hover:bg-[#6B4D57]">
@@ -45,7 +61,7 @@ function Home() {
         <div className="mx-auto grid max-w-7xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             [Utensils, "Weekly menus", "Admin-published notes for each day."],
-            [CalendarCheck, "Skip meals", "Customers can pause specific dates."],
+            [CalendarCheck, "Select meals", "Customers choose meals one by one."],
             [Clock, "Today count", "Kitchen providers see meals due today."],
             [ShieldCheck, "Role access", "Cookie auth protects user and admin flows."]
           ].map(([Icon, title, text]) => (
@@ -79,10 +95,12 @@ function Home() {
           ))}
         </div>
       </section>
+
+      
+      
     </>
   );
 }
 
 export default Home;
-
 

@@ -6,6 +6,7 @@ const orderSchema = new Schema({
   itemId: { type: Types.ObjectId, required: true },
   providerId: { type: Types.ObjectId, ref: "user" },
   kitchenId: { type: Types.ObjectId, ref: "kitchen" },
+  packId: { type: String },
   complaintAccepted: { type: Boolean, default: false },
   quantity: { type: Number, min: 1, default: 1 },
   status: {

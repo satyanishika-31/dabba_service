@@ -14,25 +14,26 @@ function normalizeId(value) {
   return value?._id || value?.id || value?.toString?.() || value;
 }
 
-function getDateForDay(dayName) {
-  const daysOfWeek = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-  const targetIndex = daysOfWeek.indexOf(dayName.toLowerCase());
-  if (targetIndex === -1) return new Date().toISOString().slice(0, 10);
-  
-  const today = new Date();
-  const currentDayIndex = today.getDay();
-  const diff = targetIndex - currentDayIndex;
-  const targetDate = new Date(today);
-  targetDate.setDate(today.getDate() + diff);
-  return targetDate.toISOString().slice(0, 10);
+function isSameId(left, right) {
+  return normalizeId(left)?.toString() === normalizeId(right)?.toString();
+}
+
+function createPackId() {
+  const id = typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : Date.now().toString(36);
+  return `pack-${id}`;
 }
 
 function Menu() {
   const { user, isAuthenticated } = useAuth();
   const [menus, setMenus] = useState([]);
   const [skips, setSkips] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [kitchens, setKitchens] = useState([]);
   const [subscription, setSubscription] = useState(null);
+  const [mealQuantities, setMealQuantities] = useState({});
+  const [selectedMeals, setSelectedMeals] = useState([]);
   const [mealForm, setMealForm] = useState({
     day: "Monday",
     mealTime: "MORNING",
@@ -44,7 +45,7 @@ function Menu() {
     imageUrl: ""
   });
   const [imageInputKey, setImageInputKey] = useState(0);
-  const [orderForm, setOrderForm] = useState({ deliveryAddress: "", quantity: 1 });
+  const [orderForm, setOrderForm] = useState({ deliveryAddress: "" });
   const [skipForm, setSkipForm] = useState({ date: new Date().toISOString().slice(0, 10), reason: "" });
   const [message, setMessage] = useState("");
   const [orderConfirmation, setOrderConfirmation] = useState(null);
@@ -53,6 +54,14 @@ function Menu() {
   const canManageMeals = user?.role === "FOOD_PROVIDER" || user?.role === "ADMIN";
   const canDeleteAnyMeal = user?.role === "ADMIN";
   const canOrder = user?.role === "USER";
+  const isStudentPlan = subscription?.planName?.toLowerCase() === "student";
+  const isFamilyPlan = subscription?.planName?.toLowerCase() === "family";
+  const subscriptionQuantityMax = isFamilyPlan ? 4 : undefined;
+
+  const selectedMealsTotal = selectedMeals.reduce(
+    (sum, meal) => sum + Number(meal.price || 0) * Number(meal.quantity || 1),
+    0
+  );
 
   const menuByDay = useMemo(() => {
     const map = new Map();
@@ -80,14 +89,16 @@ function Menu() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [menuRes, skipRes, subRes] = await Promise.all([
+      const [menuRes, skipRes, subRes, orderRes] = await Promise.all([
         api.getMenu(),
         canOrder ? api.getSkippedMeals() : Promise.resolve({ payload: [] }),
-        canOrder ? api.getMySubscriptions() : Promise.resolve({ payload: null })
+        canOrder ? api.getMySubscriptions() : Promise.resolve({ payload: null }),
+        canOrder ? api.getMyOrders() : Promise.resolve({ payload: [] })
       ]);
       setMenus(menuRes.payload || []);
       setSkips(skipRes.payload || []);
       setSubscription(subRes?.payload || null);
+      setOrders(orderRes.payload || []);
 
       if (canManageMeals) {
         const kitchenRes = await api.getKitchens();
@@ -149,29 +160,144 @@ function Menu() {
     }
   };
 
-  const placeOrder = async (menuId, itemId) => {
+  const selectRegularMeal = (menuId, item) => {
     setMessage("");
     setOrderConfirmation(null);
-    try {
-      const orderedItem = menus
-        .flatMap((menu) => menu.items || [])
-        .find((item) => item._id === itemId);
+    setSelectedMeals((current) => {
+      const alreadySelected = current.some((meal) => (
+        isSameId(meal.menuId, menuId) && isSameId(meal.itemId, item._id)
+      ));
 
-      await api.placeOrder({
-        menuId,
-        itemId,
-        quantity: Number(orderForm.quantity),
-        deliveryAddress: orderForm.deliveryAddress
-      });
+      if (alreadySelected) return current;
+
+      return [
+        ...current,
+        {
+          menuId,
+          itemId: item._id,
+          name: item.name,
+          mealTime: item.mealTime,
+          price: item.price,
+          quantity: 1
+        }
+      ];
+    });
+  };
+
+  const removeRegularMeal = (menuId, itemId) => {
+    setSelectedMeals((current) => current.filter((meal) => (
+      !isSameId(meal.menuId, menuId) || !isSameId(meal.itemId, itemId)
+    )));
+  };
+
+  const updateRegularMealQuantity = (menuId, itemId, quantity) => {
+    setSelectedMeals((current) => current.map((meal) => (
+      isSameId(meal.menuId, menuId) && isSameId(meal.itemId, itemId)
+        ? { ...meal, quantity: Math.max(1, Number(quantity || 1)) }
+        : meal
+    )));
+  };
+
+  const placeSelectedOrders = async () => {
+    setMessage("");
+    setOrderConfirmation(null);
+
+    if (!selectedMeals.length) {
+      setMessage("Select at least one meal before ordering.");
+      return;
+    }
+
+    if (!orderForm.deliveryAddress.trim()) {
+      setMessage("Delivery address is required.");
+      return;
+    }
+
+    try {
+      const packId = createPackId();
+      await Promise.all(selectedMeals.map((meal) => api.placeOrder({
+        menuId: meal.menuId,
+        itemId: meal.itemId,
+        quantity: Number(meal.quantity || 1),
+        deliveryAddress: orderForm.deliveryAddress,
+        packId
+      })));
+
+      const orderedCount = selectedMeals.length;
+      const orderedQuantity = selectedMeals.reduce((sum, meal) => sum + Number(meal.quantity || 1), 0);
+      setSelectedMeals([]);
       await loadData();
-      const successMessage = "Order placed. Delivery can now track it.";
+      const successMessage = orderedCount === 1
+        ? "Order placed. Delivery can now track it."
+        : `${orderedCount} orders placed. Delivery can now track them.`;
       setMessage(successMessage);
       setOrderConfirmation({
         title: "Order confirmed",
         message: successMessage,
-        mealName: orderedItem?.name || "Your meal",
-        quantity: Number(orderForm.quantity)
+        mealName: orderedCount === 1 ? "Selected meal" : "Selected meals",
+        quantity: orderedQuantity
       });
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
+  const selectSubscriptionMeal = async (menuId, item) => {
+    setMessage("");
+    setOrderConfirmation(null);
+    try {
+      const requestedQuantity = Math.max(1, Number(mealQuantities[item._id] || 1));
+      const quantity = isStudentPlan ? 1 : Math.min(subscriptionQuantityMax || requestedQuantity, requestedQuantity);
+      await api.placeOrder({
+        menuId,
+        itemId: item._id,
+        quantity,
+        deliveryAddress: subscription.deliveryAddress
+      });
+      setMealQuantities((current) => ({ ...current, [item._id]: 1 }));
+      await loadData();
+      const successMessage = "Meal selected for your subscription.";
+      setMessage(successMessage);
+      setOrderConfirmation({
+        title: "Meal selected",
+        message: successMessage,
+        mealName: item.name || "Your meal",
+        quantity
+      });
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
+  const orderExtraMeal = async (menuId, item) => {
+    setMessage("");
+    setOrderConfirmation(null);
+    try {
+      await api.placeOrder({
+        menuId,
+        itemId: item._id,
+        quantity: 1,
+        deliveryAddress: subscription.deliveryAddress
+      });
+      await loadData();
+      const successMessage = "Extra meal ordered separately.";
+      setMessage(successMessage);
+      setOrderConfirmation({
+        title: "Extra order placed",
+        message: successMessage,
+        mealName: item.name || "Your meal",
+        quantity: 1
+      });
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
+  const cancelSelectedMeal = async (id) => {
+    setMessage("");
+    try {
+      await api.cancelOrder(id);
+      await loadData();
+      setMessage("Selected meal cancelled.");
     } catch (error) {
       setMessage(error.message);
     }
@@ -284,10 +410,17 @@ function Menu() {
               </div>
               <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {items.map((item) => {
-                  const mealDateStr = getDateForDay(day);
-                  const skipDoc = skips.find(s => s.mealTime === item.mealTime && new Date(s.date).toISOString().slice(0, 10) === mealDateStr);
-                  const isSkipped = !!skipDoc;
-                  const isSubscribed = canOrder && subscription;
+                  const isSubscribed = Boolean(canOrder && subscription);
+                  const selectedOrder = orders.find((order) => (
+                    isSameId(order.menuId, item.menuId || menu._id)
+                    && isSameId(order.itemId, item._id)
+                    && order.status === "ORDERED"
+                  ));
+                  const selectedRegularMeal = selectedMeals.find((meal) => (
+                    isSameId(meal.menuId, item.menuId || menu._id)
+                    && isSameId(meal.itemId, item._id)
+                  ));
+                  const itemQuantity = mealQuantities[item._id] || 1;
 
                   return (
                     <article key={item._id} className="overflow-hidden rounded-lg border border-[#6B4D57] bg-[#896A67]/10">
@@ -322,47 +455,84 @@ function Menu() {
                         
                         {isSubscribed ? (
                           <div className="mt-4 space-y-2">
-                            {isSkipped ? (
+                            {selectedOrder ? (
                               <div>
-                                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs font-bold text-red-700">
-                                  Skipped ({item.mealTime})
+                                <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-center text-xs font-bold text-green-700">
+                                  Selected ({item.mealTime}) / Qty {selectedOrder.quantity || 1}
                                 </div>
+                                {isStudentPlan && (
+                                  <button
+                                    type="button"
+                                    onClick={() => orderExtraMeal(item.menuId || menu._id, item)}
+                                    className="mt-2 w-full rounded-md border border-[#896A67] bg-white px-3 py-2 text-xs font-black text-[#3F2A32] hover:bg-[#896A67]/10"
+                                  >
+                                    Order extra separately
+                                  </button>
+                                )}
                                 <button
                                   type="button"
-                                  onClick={() => undoSkip(skipDoc._id)}
-                                  className="mt-2 w-full rounded-md border border-[#896A67] bg-white px-3 py-2 text-xs font-black text-[#3F2A32] hover:bg-[#896A67]/10"
+                                  onClick={() => cancelSelectedMeal(selectedOrder._id)}
+                                  className="mt-2 w-full rounded-md bg-[#7A5C5F] px-3 py-2 text-xs font-black text-white hover:bg-[#6B4D57]"
                                 >
-                                  Undo Skip
+                                  Cancel
                                 </button>
                               </div>
                             ) : (
                               <div>
-                                <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-center text-xs font-bold text-green-700">
-                                  Booked ({item.mealTime})
-                                </div>
+                                {isStudentPlan ? (
+                                  <div className="rounded-md border border-[#896A67]/30 bg-white px-3 py-2 text-xs font-bold text-[#7A5C5F]">
+                                    Student plan meals are fixed at Qty 1.
+                                  </div>
+                                ) : (
+                                  <label className="text-xs font-black uppercase tracking-wide text-[#896A67]">
+                                    Quantity
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max={subscriptionQuantityMax}
+                                      value={itemQuantity}
+                                      onChange={(event) => setMealQuantities((current) => ({
+                                        ...current,
+                                        [item._id]: Math.min(
+                                          subscriptionQuantityMax || Number(event.target.value || 1),
+                                          Math.max(1, Number(event.target.value || 1))
+                                        )
+                                      }))}
+                                      className="mt-2 w-full rounded-md border border-[#896A67] bg-white px-3 py-2 text-sm font-bold text-[#3F2A32]"
+                                    />
+                                    {isFamilyPlan && <span className="mt-1 block text-xs font-bold normal-case tracking-normal text-[#7A5C5F]">Maximum 4 per meal.</span>}
+                                  </label>
+                                )}
                                 <button
                                   type="button"
-                                  onClick={async () => {
-                                    try {
-                                      await api.skipMeal({ date: mealDateStr, mealTime: item.mealTime, reason: "Plan skip" });
-                                      await loadData();
-                                      setMessage("Meal skip recorded.");
-                                    } catch (err) {
-                                      setMessage(err.message);
-                                    }
-                                  }}
-                                  className="mt-2 w-full rounded-md bg-[#7A5C5F] px-3 py-2 text-xs font-black text-white hover:bg-[#6B4D57]"
+                                  onClick={() => selectSubscriptionMeal(item.menuId || menu._id, item)}
+                                  className="mt-2 w-full rounded-md bg-[#3F2A32] px-3 py-2 text-xs font-black text-white hover:bg-[#6B4D57]"
                                 >
-                                  Skip {item.mealTime === 'MORNING' ? 'Morning' : item.mealTime === 'AFTERNOON' ? 'Afternoon' : 'Evening'}
+                                  Select
                                 </button>
                               </div>
                             )}
                           </div>
                         ) : (
                           canOrder && (
-                            <button type="button" onClick={() => placeOrder(item.menuId || menu._id, item._id)} className="mt-4 flex w-full items-center justify-center gap-2 rounded-md bg-[#3F2A32] px-4 py-3 text-sm font-black text-white hover:bg-[#6B4D57]">
-                              <ShoppingBag size={17} /> Order
-                            </button>
+                            selectedRegularMeal ? (
+                              <div className="mt-4">
+                                <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-center text-xs font-bold text-green-700">
+                                  Selected / Qty {selectedRegularMeal.quantity || 1}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeRegularMeal(item.menuId || menu._id, item._id)}
+                                  className="mt-2 w-full rounded-md bg-[#7A5C5F] px-3 py-2 text-xs font-black text-white hover:bg-[#6B4D57]"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button type="button" onClick={() => selectRegularMeal(item.menuId || menu._id, item)} className="mt-4 flex w-full items-center justify-center gap-2 rounded-md bg-[#3F2A32] px-4 py-3 text-sm font-black text-white hover:bg-[#6B4D57]">
+                                <ShoppingBag size={17} /> Select
+                              </button>
+                            )
                           )
                         )}
                       </div>
@@ -418,20 +588,20 @@ function Menu() {
                 </h2>
                 <div className="rounded-md bg-[#896A67]/10 p-4">
                   <p className="font-black text-[#3F2A32]">{subscription.planName} Plan</p>
-                  <p className="mt-1 text-sm text-[#7A5C5F]">Daily meals are automatically booked and delivered to:</p>
+                  <p className="mt-1 text-sm text-[#7A5C5F]">Selected meals will be delivered to:</p>
                   <p className="mt-2 text-sm font-semibold text-[#3F2A32]">{subscription.deliveryAddress}</p>
                 </div>
                 <p className="text-xs text-[#7A5C5F] italic">
-                  To skip meals under your plan, use the "Skip" buttons directly on the meals in the menu.
+                  Use Select and Cancel on each meal to manage what you want delivered under your plan.
                 </p>
-                {skips.length > 0 && (
+                {orders.filter((order) => order.status === "ORDERED").length > 0 && (
                   <div className="border-t border-[#896A67]/20 pt-4">
-                    <h3 className="text-sm font-bold text-[#3F2A32] mb-3">Your Skipped Meals:</h3>
+                    <h3 className="text-sm font-bold text-[#3F2A32] mb-3">Selected Meals:</h3>
                     <div className="space-y-2">
-                      {skips.map((skip) => (
-                        <div key={skip._id} className="flex items-center justify-between rounded-md bg-[#896A67]/10 px-3 py-2 text-sm">
-                          <span>{new Date(skip.date).toLocaleDateString()} ({skip.mealTime})</span>
-                          <button type="button" onClick={() => undoSkip(skip._id)} title="Undo skip" className="text-[#3F2A32] hover:text-red-600">
+                      {orders.filter((order) => order.status === "ORDERED").map((order) => (
+                        <div key={order._id} className="flex items-center justify-between gap-3 rounded-md bg-[#896A67]/10 px-3 py-2 text-sm">
+                          <span>{order.mealSnapshot?.name} / Qty {order.quantity || 1}</span>
+                          <button type="button" onClick={() => cancelSelectedMeal(order._id)} title="Cancel selected meal" className="text-[#3F2A32] hover:text-red-600">
                             <Trash2 size={16} />
                           </button>
                         </div>
@@ -444,10 +614,51 @@ function Menu() {
               <>
                 <div className="rounded-lg border border-[#6B4D57] bg-white p-5 shadow-sm">
                   <h2 className="flex items-center gap-2 text-lg font-black text-[#3F2A32]">
-                    <ShoppingBag size={19} /> Order details
+                    <ShoppingBag size={19} /> Selected order
                   </h2>
-                  <input value={orderForm.deliveryAddress} onChange={(event) => setOrderForm({ ...orderForm, deliveryAddress: event.target.value })} placeholder="Delivery address" className="mt-5 w-full rounded-md border border-[#896A67] px-4 py-3" />
-                  <input type="number" min="1" value={orderForm.quantity} onChange={(event) => setOrderForm({ ...orderForm, quantity: event.target.value })} className="mt-4 w-full rounded-md border border-[#896A67] px-4 py-3" />
+                  <input value={orderForm.deliveryAddress} onChange={(event) => setOrderForm({ ...orderForm, deliveryAddress: event.target.value })} required placeholder="Delivery address" className="mt-5 w-full rounded-md border border-[#896A67] px-4 py-3" />
+                  <div className="mt-4 space-y-3">
+                    {selectedMeals.length ? (
+                      selectedMeals.map((meal) => (
+                        <div key={`${meal.menuId}-${meal.itemId}`} className="rounded-md bg-[#896A67]/10 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-black text-[#3F2A32]">{meal.name}</p>
+                              <p className="mt-1 text-xs font-bold text-[#7A5C5F]">{meal.mealTime} / Rs. {meal.price}</p>
+                            </div>
+                            <button type="button" onClick={() => removeRegularMeal(meal.menuId, meal.itemId)} title="Remove selected meal" className="text-[#3F2A32] hover:text-red-600">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                          <label className="mt-3 block text-xs font-black uppercase tracking-wide text-[#896A67]">
+                            Quantity
+                            <input
+                              type="number"
+                              min="1"
+                              value={meal.quantity}
+                              onChange={(event) => updateRegularMealQuantity(meal.menuId, meal.itemId, event.target.value)}
+                              className="mt-2 w-full rounded-md border border-[#896A67] bg-white px-3 py-2 text-sm font-bold text-[#3F2A32]"
+                            />
+                          </label>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-md bg-[#896A67]/10 px-4 py-3 text-sm font-semibold text-[#7A5C5F]">
+                        Select meals from the menu. They will appear here before you order.
+                      </p>
+                    )}
+                  </div>
+                  {selectedMeals.length > 0 && (
+                    <>
+                      <div className="mt-4 flex items-center justify-between border-t border-[#896A67]/20 pt-4 text-sm font-black text-[#3F2A32]">
+                        <span>Total</span>
+                        <span>Rs. {selectedMealsTotal}</span>
+                      </div>
+                      <button type="button" onClick={placeSelectedOrders} className="mt-4 w-full rounded-md bg-[#3F2A32] px-4 py-3 font-black text-white hover:bg-[#6B4D57]">
+                        Order selected meals
+                      </button>
+                    </>
+                  )}
                 </div>
 
                 <form onSubmit={skipMeal} className="rounded-lg border border-[#6B4D57] bg-white p-5 shadow-sm">

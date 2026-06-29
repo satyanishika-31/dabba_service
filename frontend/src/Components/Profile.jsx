@@ -292,12 +292,12 @@ function Profile() {
                 </div>
               ) : (
                 <div className="mt-5">
-                  <p className="text-sm text-[#7A5C5F] mb-4">You do not have an active subscription. Choose a plan below to start receiving daily home-style meals automatically:</p>
+                  <p className="text-sm text-[#7A5C5F] mb-4">You do not have an active subscription. Choose a plan, then select the meals you want from the menu:</p>
                   <div className="grid gap-4 sm:grid-cols-3">
                     {[
-                      { name: "Student", price: "1999", detail: "One home-style meal every weekday." },
-                      { name: "Office", price: "3499", detail: "Lunch and dinner with skip controls." },
-                      { name: "Family", price: "6499", detail: "Shared subscription for daily household meals." }
+                      { name: "Student", price: "1999", detail: "Select the meals you want during the week." },
+                      { name: "Office", price: "3499", detail: "Choose lunch, dinner, or both from the menu." },
+                      { name: "Family", price: "6499", detail: "Select separate meals and quantities, up to 4 per order." }
                     ].map((plan) => (
                       <div key={plan.name} className="flex flex-col justify-between rounded-md border border-[#896A67]/35 p-4 bg-white hover:border-[#6B4D57] transition">
                         <div>
@@ -343,6 +343,7 @@ function Profile() {
                           <p className="text-xs font-black uppercase tracking-wide text-[#896A67]">{formatDate(order.createdAt)}</p>
                           <h3 className="mt-1 text-lg font-black text-[#3F2A32]">{order.mealSnapshot?.name}</h3>
                           <p className="mt-1 text-sm text-[#7A5C5F]">Qty {order.quantity} / Rs. {order.totalAmount}</p>
+                          {order.packId && <p className="mt-1 text-xs font-black uppercase tracking-wide text-[#6B4D57]">Same pack</p>}
                         </div>
                         <p className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#3F2A32]">
                           {order.status} / {deliveryStatus}
@@ -438,6 +439,7 @@ function Profile() {
                           <p className="text-xs font-black uppercase tracking-wide text-[#896A67]">{order.mealSnapshot?.day} / {order.mealSnapshot?.mealTime}</p>
                           <h3 className="mt-1 text-lg font-black text-[#3F2A32]">{order.mealSnapshot?.name}</h3>
                           <p className="mt-1 text-sm text-[#7A5C5F]">{order.customerSnapshot?.name} / {order.customerSnapshot?.mobile}</p>
+                          {order.packId && <p className="mt-1 text-xs font-black uppercase tracking-wide text-[#6B4D57]">Same pack</p>}
                         </div>
                         <p className="rounded-md bg-white px-3 py-2 text-xs font-black text-[#3F2A32]">{deliveryStatus} {isUserConfirmed && "(Confirmed)"}</p>
                       </div>

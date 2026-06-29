@@ -5,12 +5,23 @@ import { OrderModel } from '../models/OrderModel.js'
 import { DeliveryModel } from '../models/DeliveryModel.js'
 import { UserModel } from '../models/UserModel.js'
 import { ComplaintModel } from '../models/ComplaintModel.js'
+import { SubscriptionModel } from '../models/SubscriptionModel.js'
 
 export const orderApp = exp.Router()
 
 orderApp.post('/', verifyToken('USER'), async (req, res) => {
   try {
-    const { menuId, itemId, quantity = 1, deliveryAddress = '' } = req.body
+    const { menuId, itemId, quantity = 1, deliveryAddress = '', packId = '' } = req.body
+    const orderQuantity = Math.max(1, Number(quantity || 1))
+    const normalizedAddress = deliveryAddress.trim()
+    if (!normalizedAddress) return res.status(400).json({ message: 'Delivery address is required' })
+    if (!Number.isFinite(orderQuantity)) return res.status(400).json({ message: 'Invalid quantity' })
+
+    const subscription = await SubscriptionModel.findOne({ userId: req.user.id, status: 'ACTIVE' })
+    if (subscription?.planName?.toLowerCase() === 'family' && orderQuantity > 4) {
+      return res.status(400).json({ message: 'Family plan orders can have a maximum quantity of 4' })
+    }
+
     const menu = await MenuModel.findById(menuId)
     if (!menu) return res.status(404).json({ message: 'Menu not found' })
 
@@ -24,7 +35,8 @@ orderApp.post('/', verifyToken('USER'), async (req, res) => {
       itemId,
       providerId: item.providerId,
       kitchenId: item.kitchenId,
-      quantity,
+      packId: packId.trim() || undefined,
+      quantity: orderQuantity,
       mealSnapshot: {
         name: item.name,
         mealTime: item.mealTime,
@@ -38,9 +50,9 @@ orderApp.post('/', verifyToken('USER'), async (req, res) => {
         name: customer.name,
         email: customer.email,
         mobile: customer.mobile,
-        address: deliveryAddress
+        address: normalizedAddress
       },
-      totalAmount: item.price * quantity
+      totalAmount: item.price * orderQuantity
     })
 
     await DeliveryModel.create({ orderId: order._id })
@@ -63,6 +75,22 @@ orderApp.get('/mine', verifyToken('USER'), async (req, res) => {
         complaint: complaintMap.get(order._id.toString())
       }))
     })
+  } catch (err) { res.status(500).json({ message: err.message }) }
+})
+
+orderApp.delete('/:id', verifyToken('USER'), async (req, res) => {
+  try {
+    const order = await OrderModel.findById(req.params.id)
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+    if (order.customerId.toString() !== req.user.id) return res.status(403).json({ message: 'Not authorized' })
+    if (order.status !== 'ORDERED') {
+      return res.status(400).json({ message: 'Only pending selected meals can be cancelled' })
+    }
+
+    await DeliveryModel.deleteMany({ orderId: order._id })
+    await OrderModel.findByIdAndDelete(order._id)
+
+    res.status(200).json({ message: 'Selected meal cancelled' })
   } catch (err) { res.status(500).json({ message: err.message }) }
 })
 
@@ -92,13 +120,24 @@ orderApp.put('/:id/delivery-status', verifyToken('DELIVERY'), async (req, res) =
       FAILED: 'CANCELLED'
     }[status]
 
-    const delivery = await DeliveryModel.findOneAndUpdate(
-      { orderId: req.params.id },
+    const currentOrder = await OrderModel.findById(req.params.id)
+    if (!currentOrder) return res.status(404).json({ message: 'Order not found' })
+
+    const packQuery = currentOrder.packId
+      ? { packId: currentOrder.packId, customerId: currentOrder.customerId }
+      : { _id: currentOrder._id }
+    const packOrders = await OrderModel.find(packQuery)
+    const packOrderIds = packOrders.map(order => order._id)
+
+    await OrderModel.updateMany({ _id: { $in: packOrderIds } }, { status: orderStatus })
+    await Promise.all(packOrderIds.map(orderId => DeliveryModel.findOneAndUpdate(
+      { orderId },
       { status, deliveryPersonId: req.user.id },
       { new: true, upsert: true }
-    )
-    const order = await OrderModel.findByIdAndUpdate(req.params.id, { status: orderStatus }, { new: true })
-    if (!order) return res.status(404).json({ message: 'Order not found' })
+    )))
+
+    const order = await OrderModel.findById(req.params.id)
+    const delivery = await DeliveryModel.findOne({ orderId: req.params.id })
 
     res.status(200).json({ message: 'Delivery status updated', payload: { order, delivery } })
   } catch (err) { res.status(500).json({ message: err.message }) }
@@ -110,22 +149,33 @@ orderApp.put('/:id/confirm-delivered', verifyToken('USER'), async (req, res) => 
     if (!order) return res.status(404).json({ message: 'Order not found' })
     if (order.customerId.toString() !== req.user.id) return res.status(403).json({ message: 'Not authorized' })
 
-    let delivery = await DeliveryModel.findOne({ orderId: order._id })
-    if (!delivery) {
-      delivery = await DeliveryModel.create({ orderId: order._id })
+    const packQuery = order.packId
+      ? { packId: order.packId, customerId: order.customerId }
+      : { _id: order._id }
+    const packOrders = await OrderModel.find(packQuery)
+    const packOrderIds = packOrders.map(packOrder => packOrder._id)
+    const deliveries = await DeliveryModel.find({ orderId: { $in: packOrderIds } })
+    const canMarkDelivered = deliveries.some(delivery => (
+      delivery.status === 'PICKED' || delivery.status === 'REACHED' || delivery.status === 'DELIVERED'
+    ))
+
+    await Promise.all(packOrderIds.map(orderId => DeliveryModel.findOneAndUpdate(
+      { orderId },
+      {
+        userConfirmed: true,
+        ...(canMarkDelivered ? { status: 'DELIVERED' } : {})
+      },
+      { new: true, upsert: true }
+    )))
+
+    if (canMarkDelivered) {
+      await OrderModel.updateMany({ _id: { $in: packOrderIds } }, { status: 'DELIVERED' })
     }
 
-    delivery.userConfirmed = true
+    const updatedOrder = await OrderModel.findById(req.params.id)
+    const delivery = await DeliveryModel.findOne({ orderId: order._id })
 
-    if (delivery.status === 'PICKED' || delivery.status === 'REACHED' || delivery.status === 'DELIVERED') {
-      order.status = 'DELIVERED'
-      delivery.status = 'DELIVERED'
-      await order.save()
-    }
-
-    await delivery.save()
-
-    res.status(200).json({ message: 'Delivery confirmed', payload: { order, delivery } })
+    res.status(200).json({ message: 'Delivery confirmed', payload: { order: updatedOrder, delivery } })
   } catch (err) { res.status(500).json({ message: err.message }) }
 })
 
@@ -212,4 +262,3 @@ orderApp.delete('/complaints/:id', verifyToken('FOOD_PROVIDER', 'ADMIN'), async 
     res.status(500).json({ message: err.message })
   }
 })
-

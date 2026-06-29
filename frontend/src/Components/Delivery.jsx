@@ -113,6 +113,7 @@ function Delivery() {
                 <h2 className="mt-1 text-xl font-black text-[#3F2A32]">{order.mealSnapshot?.name}</h2>
                 <p className="mt-1 text-sm font-bold text-[#7A5C5F]">{order.mealSnapshot?.kitchenName || "Kitchen"}</p>
                 <p className="mt-2 text-sm text-[#7A5C5F]">Qty {order.quantity} / Rs. {order.totalAmount}</p>
+                {order.packId && <p className="mt-1 text-xs font-black uppercase tracking-wide text-[#6B4D57]">Same pack</p>}
 
                 <div className="mt-5 space-y-2 rounded-md bg-[#896A67]/10 p-3 text-sm text-[#3F2A32]">
                   <p className="flex gap-2"><UserRound size={16} /> {order.customerSnapshot?.name}</p>
