@@ -9,7 +9,8 @@ import {
   ShoppingBag,
   Truck,
   UserCircle,
-  CalendarCheck
+  CalendarCheck,
+  MessageSquareWarning
 } from "lucide-react";
 import { Navigate } from "react-router-dom";
 import { api } from "../api/client";
@@ -334,7 +335,6 @@ function Profile() {
                   const deliveryStatus = order.delivery?.status || "ASSIGNED";
                   const hasMismatch = (isUserConfirmed && deliveryStatus !== "DELIVERED") || 
                                       (!isUserConfirmed && deliveryStatus === "DELIVERED");
-                  const shouldShowComplaint = hasMismatch || deliveryStatus === "FAILED";
 
                   return (
                     <article key={order._id} className="rounded-md bg-[#896A67]/10 p-4">
@@ -351,49 +351,50 @@ function Profile() {
                       </div>
                       <p className="mt-3 flex gap-2 text-sm text-[#7A5C5F]"><MapPin size={16} /> {order.customerSnapshot?.address || "No delivery address recorded"}</p>
                       
-                      {shouldShowComplaint && (
-                        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-4">
-                          {order.complaint ? (
-                            <p className="text-sm font-bold text-red-700">
-                              Complaint: "{order.complaint.description}" (Pending)
+                      <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-4">
+                        {order.complaint ? (
+                          <div className="flex items-start gap-2 text-sm font-bold text-red-700">
+                            <MessageSquareWarning size={17} className="mt-0.5 shrink-0" />
+                            <p>Complaint: "{order.complaint.description}" (Pending with food provider)</p>
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="mb-2 flex items-center gap-2 text-sm font-bold text-red-700">
+                              <MessageSquareWarning size={17} /> Send a complaint to the food provider
                             </p>
-                          ) : (
-                            <div>
-                              <p className="text-sm font-bold text-red-700 mb-2">Something went wrong with this delivery. Please file a complaint:</p>
-                              <form
-                                onSubmit={async (e) => {
-                                  e.preventDefault();
-                                  const desc = e.target.elements.complaintDesc.value;
-                                  if (!desc.trim()) return;
-                                  try {
-                                    await api.raiseComplaint(order._id, { description: desc });
-                                    setMessage("Complaint submitted successfully.");
-                                    e.target.reset();
-                                    await loadProfileData();
-                                  } catch (err) {
-                                    setMessage(err.message);
-                                  }
-                                }}
-                                className="flex flex-col gap-2"
+                            <form
+                              onSubmit={async (e) => {
+                                e.preventDefault();
+                                const desc = e.target.elements.complaintDesc.value;
+                                if (!desc.trim()) return;
+                                try {
+                                  await api.raiseComplaint(order._id, { description: desc });
+                                  setMessage("Complaint submitted to the food provider.");
+                                  e.target.reset();
+                                  await loadProfileData();
+                                } catch (err) {
+                                  setMessage(err.message);
+                                }
+                              }}
+                              className="flex flex-col gap-2"
+                            >
+                              <textarea
+                                name="complaintDesc"
+                                required
+                                placeholder="Describe the complaint..."
+                                className="w-full rounded-md border border-red-300 p-2 text-sm text-gray-900 outline-none focus:border-red-500"
+                                rows={2}
+                              />
+                              <button
+                                type="submit"
+                                className="self-end rounded bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
                               >
-                                <textarea
-                                  name="complaintDesc"
-                                  required
-                                  placeholder="Describe the complaint..."
-                                  className="w-full rounded-md border border-red-300 p-2 text-sm text-gray-900 outline-none focus:border-red-500"
-                                  rows={2}
-                                />
-                                <button
-                                  type="submit"
-                                  className="self-end rounded bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
-                                >
-                                  Submit Complaint
-                                </button>
-                              </form>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                                Submit Complaint
+                              </button>
+                            </form>
+                          </div>
+                        )}
+                      </div>
 
                       {!isUserConfirmed && deliveryStatus === "REACHED" && (
                         <button

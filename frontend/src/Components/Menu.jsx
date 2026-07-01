@@ -5,6 +5,11 @@ import { useAuth } from "../context/useAuth";
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const mealTimes = ["MORNING", "AFTERNOON", "EVENING"];
+const skipMealTimes = [
+  { label: "Morning", value: "MORNING" },
+  { label: "Afternoon", value: "AFTERNOON" },
+  { label: "Night", value: "EVENING" }
+];
 
 function normalizeDay(day) {
   return day?.toString().trim().toLowerCase();
@@ -46,7 +51,7 @@ function Menu() {
   });
   const [imageInputKey, setImageInputKey] = useState(0);
   const [orderForm, setOrderForm] = useState({ deliveryAddress: "" });
-  const [skipForm, setSkipForm] = useState({ date: new Date().toISOString().slice(0, 10), reason: "" });
+  const [skipForm, setSkipForm] = useState({ date: new Date().toISOString().slice(0, 10), mealTime: "MORNING", reason: "" });
   const [message, setMessage] = useState("");
   const [orderConfirmation, setOrderConfirmation] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -330,7 +335,7 @@ function Menu() {
     setMessage("");
     try {
       await api.skipMeal(skipForm);
-      setSkipForm({ date: skipForm.date, reason: "" });
+      setSkipForm({ date: skipForm.date, mealTime: skipForm.mealTime, reason: "" });
       await loadData();
       setMessage("Meal skip recorded.");
     } catch (error) {
@@ -666,12 +671,21 @@ function Menu() {
                     <UtensilsCrossed size={19} /> Skip a meal
                   </h2>
                   <input type="date" value={skipForm.date} onChange={(event) => setSkipForm({ ...skipForm, date: event.target.value })} className="mt-5 w-full rounded-md border border-[#896A67] px-4 py-3" />
+                  <select
+                    value={skipForm.mealTime}
+                    onChange={(event) => setSkipForm({ ...skipForm, mealTime: event.target.value })}
+                    className="mt-4 w-full rounded-md border border-[#896A67] bg-white px-4 py-3 text-[#3F2A32]"
+                  >
+                    {skipMealTimes.map((time) => (
+                      <option key={time.value} value={time.value}>{time.label}</option>
+                    ))}
+                  </select>
                   <input value={skipForm.reason} onChange={(event) => setSkipForm({ ...skipForm, reason: event.target.value })} placeholder="Reason" className="mt-4 w-full rounded-md border border-[#896A67] px-4 py-3" />
                   <button className="mt-4 w-full rounded-md bg-[#7A5C5F] px-4 py-3 font-black text-white hover:bg-[#6B4D57]">Submit skip</button>
                   <div className="mt-5 space-y-3">
                     {skips.map((skip) => (
                       <div key={skip._id} className="flex items-center justify-between rounded-md bg-[#896A67]/10 px-3 py-3 text-sm">
-                        <span>{new Date(skip.date).toLocaleDateString()} {skip.reason ? `- ${skip.reason}` : ""}</span>
+                        <span>{new Date(skip.date).toLocaleDateString()} / {skipMealTimes.find((time) => time.value === skip.mealTime)?.label || skip.mealTime} {skip.reason ? `- ${skip.reason}` : ""}</span>
                         <button type="button" onClick={() => undoSkip(skip._id)} title="Undo skip" className="text-[#3F2A32]">
                           <Trash2 size={16} />
                         </button>
